@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 import "./Layout.scss";
 
@@ -13,11 +13,26 @@ export const Layout = ({ children }) => {
       </header>
       <main className="layout__main">
         <nav className="layout__main--nav">
-          <Link className="layout__main--nav-link" to="/dashboard">Dashboard</Link>
-          <Link className="layout__main--nav-link" to="/scheduler">Scheduler</Link>
-          <Link className="layout__main--nav-link" to="/team">Team</Link>
-          <Link className="layout__main--nav-link" to="/messages">Messages</Link>
-          <Link className="layout__main--nav-link" to="/settings">Settings</Link>
+          <NavLink className="layout__main--nav-link" to="/dashboard">
+            <i className="fas fa-tachometer-alt" aria-hidden="true"></i> 
+            <span>Dashboard</span>
+          </NavLink>
+          <NavLink className="layout__main--nav-link" to="/scheduler">
+            <i className="fas fa-calendar-alt" aria-hidden="true"></i> 
+            <span>Scheduler</span>
+          </NavLink>
+          <NavLink className="layout__main--nav-link" to="/team">
+            <i className="fas fa-users" aria-hidden="true"></i> 
+            <span>Team</span>
+          </NavLink>
+          <NavLink className="layout__main--nav-link" to="/messages">
+            <i className="fas fa-envelope" aria-hidden="true"></i> 
+            <span>Messages</span>
+          </NavLink>
+          <NavLink className="layout__main--nav-link" to="/settings">
+            <i className="fas fa-cog" aria-hidden="true"></i> 
+            <span>Settings</span>
+          </NavLink>
         </nav>
         <section className="layout__main--content">
           {children}

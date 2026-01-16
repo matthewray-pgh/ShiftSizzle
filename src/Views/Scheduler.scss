@@ -1,1 +1,131 @@
-.scheduler {}
+.scheduler{
+  &__header {
+    padding: 20px;
+
+    display: flex;
+    align-items: center;
+
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+
+    h2 {
+      margin: 0;
+      font-size: 1.5rem;
+      color: #333;
+    }
+
+    &--filters-button {
+      margin-left: auto;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: transparent;
+      color: #333;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      i {
+        font-size: 1.2rem;
+      }
+
+      &:hover {
+        background-color: #333;
+        color: #fff;
+      }
+    }
+  }
+
+  &__content {
+    padding: 20px 10px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-gap: 20px;
+  }
+
+  &__chart-area {
+    padding: 20px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+
+  &__chart-area-message {
+    display: grid;
+    min-height: 400px;
+    place-items: center;
+    text-align: center;
+    color: #777;
+    font-size: 16px;
+
+    &--error {
+      color: #d9534f;
+    }
+  }
+
+  &__view-select {
+    width: 100%;
+    padding: 10px;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    color: #333;
+    margin-bottom: 1rem;
+  }
+
+  &__option-buttons button {
+    width: 100%;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 20px;
+    font-size: 1rem;
+    text-align: left;
+    background: #fff;
+    color: #282c34;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border 0.2s;
+  }
+
+  &__option-buttons button.active,
+  &__option-buttons button:focus {
+    background: #4caf50;
+    color: #fff;
+    outline: none;
+  }
+
+  &__option-button {
+    width: 100%;
+    padding: 20px;
+    background: #fff;
+    border: none;
+    color: #222;
+    cursor: pointer;
+    text-align: left;
+    font-weight: 500;
+    font-size: 1rem;
+    transition: background 0.2s, color 0.2s, border 0.2s;
+  }
+
+  &__option-button.active {
+    background: #4caf50;
+    color: #fff;
+  }
+
+  &__option-button:hover:not(.active),
+  &__option-button:focus:not(.active) {
+    background: #f0f0f0;
+    color: #111;
+  }
+
+  // Option buttons for day/employee selection
+  &__option-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+}

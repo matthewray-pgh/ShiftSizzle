@@ -1,12 +1,8 @@
 import React from "react";
 import { Layout } from "./Components/Layout";
 import { Routes, Route } from "react-router-dom";
-import Team from "./Views/Team";
-import Messages from "./Views/Messages";
-import Settings from "./Views/Settings";
 
-import { Dashboard } from "./Views/Dashboard";
-import { Scheduler } from "./Views/Scheduler";
+import { Dashboard, Messages, Scheduler, Settings, Team } from "./Views";
 
 export default function App() {
   return (
