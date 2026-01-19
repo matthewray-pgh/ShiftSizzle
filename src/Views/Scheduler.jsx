@@ -1,6 +1,10 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 
 import "./Scheduler.scss";
+import { 
+  ContentPanelHeader,
+  ContentPanel 
+} from '../Components';
 
 const availableColor = "#4caf50";
 const openHoursColor = "#e0e0e0";
@@ -62,16 +66,9 @@ export const Scheduler = () => {
 
   return (
     <div className="scheduler">
-      <header className="scheduler__header">
-        <h2>Scheduler</h2>
-        <button className="scheduler__header--filters-button">
-          <i className="fas fa-filter" aria-hidden="true"></i>
-          Filters
-        </button>
-      </header>
-      <div className="scheduler__content">
+      <ContentPanelHeader title="Scheduler" />
+      <ContentPanel>
         <div className="scheduler__controls">
-
           <div className="scheduler__view-options">
             <select
               value={view}
@@ -79,7 +76,7 @@ export const Scheduler = () => {
               className="scheduler__view-select"
             >
               <option value="day">View by Day</option>
-              <option value="team">View by Employee</option>
+              <option value="employee">View by Employee</option>
             </select>
           </div>
 
@@ -88,7 +85,7 @@ export const Scheduler = () => {
               <button
                 key={opt}
                 type="button"
-                className={`scheduler__option-buttonn${selected === opt ? ' active' : ''}`}
+                className={`scheduler__option-button${selected === opt ? ' active' : ''}`}
                 onClick={() => setSelected(opt)}
               >
                 {opt}
@@ -108,8 +105,7 @@ export const Scheduler = () => {
             chartHeight={chartHeight}
           />
         </div>
-      </div>
-      
+      </ContentPanel>
     </div>
   );
 };
