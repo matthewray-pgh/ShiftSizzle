@@ -28,6 +28,7 @@ export const Dashboard = () => {
           {myShifts.map(shift => (
             <ShiftCard 
               id={shift.date + shift.start}
+              key={shift.date + shift.start}
               title={shift.date}
               details={shift.start ? `${shift.name}: ${shift.start} - ${shift.end}` : shift.name}
             />
