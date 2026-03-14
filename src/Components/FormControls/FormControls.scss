@@ -1,0 +1,56 @@
+.input-field {
+  margin-bottom: 15px;
+}
+
+.input-field label {
+  display: block;
+  margin-bottom: 5px;
+
+  font-size: 12px;
+  color: #555;
+}
+
+.input-field input {
+  width: calc(100% - 16px);
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.button {
+  padding: 10px 20px;
+  background-color: #1973d3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background-color: #155a9c;
+  }
+
+  &:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+}
+
+.button-outline {
+  padding: 10px 20px;
+  background-color: transparent;
+  color: #1973d3;
+  border: 1px solid #1973d3;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background-color: #1973d3;
+    color: white;
+  }
+
+  &:disabled {
+    border-color: #ccc;
+    color: #ccc;
+    cursor: not-allowed;
+  }
+}

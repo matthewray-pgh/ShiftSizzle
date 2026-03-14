@@ -4,3 +4,4 @@ export {
 } from "./ContentPanel/ContentPanel";
 export { ShiftCard } from "./ShiftCard/ShiftCard";
 export { Layout } from "./Layout";
+export { Button, InputField } from "./FormControls";
