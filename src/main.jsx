@@ -8,7 +8,7 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 const root = createRoot(document.getElementById('root'));
 root.render(
   <StrictMode>
-    <BrowserRouter basename="/ShiftSizzle">
+    <BrowserRouter>
       <App />
     </BrowserRouter>
   </StrictMode>

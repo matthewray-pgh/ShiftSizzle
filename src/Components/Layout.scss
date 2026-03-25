@@ -1,17 +1,11 @@
-// Mobile nav overlay
-$primary-color: #1a1b1c;
-$secondary-color: #536285;
-
-$primary-background: #ffffff;
-$secondary-background: #e8e8e8;
-$primary-background-offset: #282c34;
+@use "../Assets/Styles.scss" as styles;
 
 // Base layout styles
 body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  background-color: $secondary-background;
+  background-color: styles.$card;
 }
 
 .layout {
@@ -22,26 +16,18 @@ body {
   font-family: Roboto, sans-serif;
 
   &__header { 
-    background-color: transparent;
-    color: $primary-color;
-    display: flex;
-    align-items: center;
-    padding: 0 10px;
-
-    &--logo {
-      font-size: 1.5rem;
-      margin-right: 7px;
-      a {
-        color: $primary-color;
-        text-decoration: none;
-      }
-    }
+    color: styles.$primary-color;
+    font-size: 1.5rem;
 
     &--title {
       margin: 0;
-      font-size: 1.5rem;
+      padding: 10px;
+
+      background-color: styles.$primary;
+      color: #fff;
+
       a {
-        color: $primary-color;
+        color: #fff;
         text-decoration: none;
       }
     }
@@ -50,7 +36,7 @@ body {
   &__main {
     display: grid;
     grid-template-columns: 100px 1fr;
-    padding-bottom: 70px;;
+    padding-bottom: 70px;
   }
 
   &__footer {
@@ -62,7 +48,7 @@ body {
     left: 0;
     bottom: 0;
 
-    background-color: $primary-background;
+    background-color: styles.$primary-background;
     box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
     border-top: 1px solid #ddd;
     text-align: center;
@@ -73,6 +59,44 @@ body {
 // desktop layout
 @media (min-width: 701px) {
   .layout {
+    &__header {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+
+      &--title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      &--main {
+        display: grid;
+        grid-template-columns: 1fr 80px;
+
+        background-color: styles.$background;
+        padding-left: 20px;
+        align-items: center;
+
+        &--current-page {
+          font-size: 1.2rem;
+          font-weight: 500;
+        }
+
+        &--user {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: styles.$primary;
+          font-size: 24px;
+
+          &:hover {
+            color: styles.$secondary;
+            cursor: pointer;
+          }
+        }
+      }
+    }
+
     &__main {
       grid-template-columns: 180px 1fr;
       padding-bottom: 0;
@@ -80,6 +104,7 @@ body {
 
     &__sidebar-nav {
       display: block;
+      background-color: styles.$background;
     }
 
     &__nav {
@@ -90,15 +115,15 @@ body {
       &--link {
         display: grid;
         grid-template-columns: 30px 1fr;
-        grid-gap: 20px;
+        grid-gap: 10px;
         align-items: center;
-        justify-content: flex-start;
+        padding: 0 8px;
+        margin-bottom: 5px;
 
-        font-size: 18px;
-        font-weight: bold;
+        font-size: 16px;
         line-height: 50px;
 
-        color: $primary-color;
+        color: styles.$text-secondary;
         text-decoration: none;
 
         transition: color 0.2s;
@@ -108,10 +133,18 @@ body {
           margin-bottom: 5px;
         }
 
-        &:hover,
         &.active {
-          color: $primary-color;
+          color: #fff;
+          background-color: styles.$primary;
+          border-radius: 5px;
         }
+
+        &:hover {
+          color: #fff;
+          background-color: styles.$secondary;
+          border-radius: 5px;
+        }
+        
       }
     }
 
@@ -127,6 +160,12 @@ body {
     grid-template-rows: 50px 1fr;
 
     &__header {
+      height: 50px;
+
+      &--main {
+        display: none;
+      }
+
       &--menu-btn {
         display: block;
       }
@@ -159,7 +198,7 @@ body {
         height: 100%;
         transition: color 0.2s;
 
-        color: $secondary-color;
+        color: styles.$text-secondary;
 
         i {
           font-size: 22px;
@@ -168,7 +207,7 @@ body {
 
         &:hover,
         &.active {
-          color: $primary-color;
+          color: styles.$primary;
         }
       }
     }
