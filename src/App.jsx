@@ -8,7 +8,6 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/scheduler" element={<Scheduler />} />
         <Route path="/shifts" element={<Shifts />} />
         <Route path="/team" element={<Team />} />
