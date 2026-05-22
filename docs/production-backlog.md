@@ -13,7 +13,17 @@ This file is the working source of truth for getting ShiftSizzle from a client-s
 
 - Frontend Vite + React application with shared local state persistence.
 - Core views exist for dashboard, team, scheduler, shifts, messages, and settings.
+- Team management now includes archive/reactivate flows, form validation, roster CSV import/export, and a dedicated first-run empty state.
 - No backend, authentication, database, deployment pipeline, or production monitoring yet.
+
+## Recent Completed Work
+
+### 2026-05-21
+
+- [x] Refined Team list/table layout with tighter width control, cleaner wrapping, and smaller availability/action column treatments.
+- [x] Removed the `Copy Monday to all` availability shortcut from the employee editor.
+- [x] Added a dedicated first-run Team empty state with `Add first employee`, `Import roster`, and template download actions.
+- [x] Hid Team search, filters, and view-toggle controls when no roster exists yet.
 
 ## Release Blockers
 
@@ -55,10 +65,10 @@ This file is the working source of truth for getting ShiftSizzle from a client-s
 ### 5. Team Management Completion
 
 - [ ] Expand employee record model: status, availability, contact, preferred hours, role, notes.
-- [ ] Add robust form validation for employee editing.
-- [ ] Support reactivating archived employees.
-- [ ] Add import/export option for employee roster if needed for launch.
-- [ ] Scope roster import v1 to core employee profile fields only; leave availability out until shifts are business-configurable.
+- [x] Add robust form validation for employee editing.
+- [x] Support reactivating archived employees.
+- [x] Add import/export option for employee roster if needed for launch.
+- [x] Scope roster import v1 to core employee profile fields only; leave availability out until shifts are business-configurable.
 
 ### 6. Messaging And Notifications
 
