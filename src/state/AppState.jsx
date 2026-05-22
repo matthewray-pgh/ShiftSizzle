@@ -3,11 +3,9 @@ import { createContext, useContext, useEffect, useMemo, useReducer } from "react
 const STORAGE_KEY = "shiftsizzle.app-state.v1";
 
 export const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-// TODO: Move shift definitions into business-configured settings before adding availability to roster import/export.
-// For the first roster import flow, limit bulk import to employee profile fields and revisit availability once shifts are configurable.
-export const SHIFT_TYPES = ["Open", "Mid", "Close"];
+export const BASE_SHIFT_TYPES = ["Open", "Mid", "Close"];
 
-export const TEAM_ROLES = Object.freeze({
+export const BASE_TEAM_ROLES = Object.freeze({
   MANAGER: "Manager",
   SERVER: "Server",
   HOST: "Host",
@@ -15,7 +13,20 @@ export const TEAM_ROLES = Object.freeze({
   COOK: "Cook",
 });
 
-const defaultRequirements = {
+const DEFAULT_TEAM_ROLE = BASE_TEAM_ROLES.MANAGER;
+const DEFAULT_SHIFTS_PER_WEEK = 5;
+const DEFAULT_OPERATING_HOURS = Object.fromEntries(
+  DAYS.map((day) => [
+    day,
+    {
+      isOpen: true,
+      openTime: day === "Friday" || day === "Saturday" ? "10:00" : "11:00",
+      closeTime: day === "Friday" || day === "Saturday" ? "23:00" : "21:00",
+    },
+  ])
+);
+
+const baseRequirements = {
   Sunday: { Open: 1, Mid: 1, Close: 1 },
   Monday: { Open: 1, Mid: 0, Close: 1 },
   Tuesday: { Open: 1, Mid: 0, Close: 1 },
@@ -25,18 +36,143 @@ const defaultRequirements = {
   Saturday: { Open: 1, Mid: 1, Close: 1 },
 };
 
-const createAvailability = (allowedShifts = SHIFT_TYPES) =>
+const getUniqueValues = (values = []) => {
+  const normalizedValues = values
+    .map((value) => `${value ?? ""}`.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(normalizedValues));
+};
+
+export const getShiftTypes = (settings = {}) => {
+  const configuredShiftTypes = getUniqueValues(settings.shiftTypes);
+
+  return configuredShiftTypes.length ? configuredShiftTypes : [...BASE_SHIFT_TYPES];
+};
+
+export const getTeamRoles = (settings = {}, employees = []) => getUniqueValues([
+  ...Object.values(BASE_TEAM_ROLES),
+  ...(settings.additionalTeamRoles ?? []),
+  ...employees.map((employee) => employee.role),
+]);
+
+const createAvailability = (allowedShifts = BASE_SHIFT_TYPES) =>
   Object.fromEntries(DAYS.map((day) => [day, [...allowedShifts]]));
+
+const createDefaultRequirements = (shiftTypes = BASE_SHIFT_TYPES) =>
+  Object.fromEntries(
+    DAYS.map((day) => [
+      day,
+      Object.fromEntries(shiftTypes.map((shift) => [shift, baseRequirements[day]?.[shift] ?? 0])),
+    ])
+  );
+
+const normalizeAvailability = (availability = {}, shiftTypes = BASE_SHIFT_TYPES) =>
+  Object.fromEntries(
+    DAYS.map((day) => {
+      const currentAvailability = availability?.[day];
+
+      if (!Array.isArray(currentAvailability)) {
+        return [day, [...shiftTypes]];
+      }
+
+      return [day, getUniqueValues(currentAvailability).filter((shift) => shiftTypes.includes(shift))];
+    })
+  );
+
+const normalizeRequirements = (
+  requirements = {},
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) =>
+  Object.fromEntries(
+    DAYS.map((day) => [
+      day,
+      Object.fromEntries(
+        shiftTypes.map((shift) => [
+          shift,
+          operatingHours[day]?.isOpen ? Math.max(0, Number(requirements?.[day]?.[shift]) || 0) : 0,
+        ])
+      ),
+    ])
+  );
+
+const normalizeAssignments = (
+  assignments = {},
+  employees = [],
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) =>
+  Object.fromEntries(
+    employees.map((employee) => [
+      employee.id,
+      Object.fromEntries(
+        DAYS.map((day) => [
+          day,
+          operatingHours[day]?.isOpen
+            ? getUniqueValues(assignments?.[employee.id]?.[day] ?? []).filter((shift) => shiftTypes.includes(shift))
+            : [],
+        ])
+      ),
+    ])
+  );
+
+const normalizeShiftsPerWeek = (employee = {}) => {
+  const configuredShifts = Number(employee.shiftsPerWeek);
+
+  if (Number.isFinite(configuredShifts)) {
+    return Math.max(0, Math.round(configuredShifts));
+  }
+
+  const legacyPreferredHours = Number(employee.preferredHours);
+
+  if (Number.isFinite(legacyPreferredHours) && legacyPreferredHours > 0) {
+    return Math.max(1, Math.round(legacyPreferredHours / 8));
+  }
+
+  return DEFAULT_SHIFTS_PER_WEEK;
+};
+
+const normalizeEmployee = (employee, shiftTypes = BASE_SHIFT_TYPES) => ({
+  ...employee,
+  role: employee.role || DEFAULT_TEAM_ROLE,
+  status: employee.status ?? "active",
+  shiftsPerWeek: normalizeShiftsPerWeek(employee),
+  availability: normalizeAvailability(employee.availability, shiftTypes),
+});
+
+const normalizeOperatingHours = (operatingHours = {}) =>
+  Object.fromEntries(
+    DAYS.map((day) => {
+      const defaultHours = DEFAULT_OPERATING_HOURS[day];
+      const configuredHours = operatingHours?.[day] ?? {};
+
+      return [
+        day,
+        {
+          isOpen: configuredHours.isOpen ?? defaultHours.isOpen,
+          openTime: typeof configuredHours.openTime === "string" && configuredHours.openTime ? configuredHours.openTime : defaultHours.openTime,
+          closeTime: typeof configuredHours.closeTime === "string" && configuredHours.closeTime ? configuredHours.closeTime : defaultHours.closeTime,
+        },
+      ];
+    })
+  );
+
+export const getOpenDays = (settings = {}) => {
+  const operatingHours = normalizeOperatingHours(settings.operatingHours);
+
+  return DAYS.filter((day) => operatingHours[day]?.isOpen);
+};
 
 const defaultEmployees = [
   {
     id: 1,
     name: "Jen Ray",
     title: "General Manager",
-    role: TEAM_ROLES.MANAGER,
+    role: BASE_TEAM_ROLES.MANAGER,
     contact: "(555) 010-1001",
     email: "jen@shiftsizzle.app",
-    preferredHours: 40,
+    shiftsPerWeek: 5,
     status: "active",
     availability: createAvailability(),
   },
@@ -44,10 +180,10 @@ const defaultEmployees = [
     id: 2,
     name: "Ryan Sutton",
     title: "Assistant General Manager",
-    role: TEAM_ROLES.MANAGER,
+    role: BASE_TEAM_ROLES.MANAGER,
     contact: "(555) 010-1002",
     email: "ryan@shiftsizzle.app",
-    preferredHours: 40,
+    shiftsPerWeek: 5,
     status: "active",
     availability: createAvailability(["Open", "Mid"]),
   },
@@ -55,10 +191,10 @@ const defaultEmployees = [
     id: 3,
     name: "Kayla Brooks",
     title: "Bar Manager",
-    role: TEAM_ROLES.BARTENDER,
+    role: BASE_TEAM_ROLES.BARTENDER,
     contact: "(555) 010-1003",
     email: "kayla@shiftsizzle.app",
-    preferredHours: 35,
+    shiftsPerWeek: 4,
     status: "active",
     availability: createAvailability(["Mid", "Close"]),
   },
@@ -66,10 +202,10 @@ const defaultEmployees = [
     id: 4,
     name: "Kirk Brady",
     title: "Director",
-    role: TEAM_ROLES.MANAGER,
+    role: BASE_TEAM_ROLES.MANAGER,
     contact: "(555) 010-1004",
     email: "kirk@shiftsizzle.app",
-    preferredHours: 32,
+    shiftsPerWeek: 4,
     status: "active",
     availability: createAvailability(["Open", "Close"]),
   },
@@ -77,10 +213,10 @@ const defaultEmployees = [
     id: 5,
     name: "Jackie Carter",
     title: "Lead Host",
-    role: TEAM_ROLES.HOST,
+    role: BASE_TEAM_ROLES.HOST,
     contact: "(555) 010-1005",
     email: "jackie@shiftsizzle.app",
-    preferredHours: 30,
+    shiftsPerWeek: 4,
     status: "active",
     availability: createAvailability(),
   },
@@ -88,10 +224,10 @@ const defaultEmployees = [
     id: 6,
     name: "Marco Ellis",
     title: "Line Cook",
-    role: TEAM_ROLES.COOK,
+    role: BASE_TEAM_ROLES.COOK,
     contact: "(555) 010-1006",
     email: "marco@shiftsizzle.app",
-    preferredHours: 38,
+    shiftsPerWeek: 5,
     status: "active",
     availability: createAvailability(["Open", "Mid"]),
   },
@@ -99,16 +235,22 @@ const defaultEmployees = [
     id: 7,
     name: "Ariana Cole",
     title: "Server",
-    role: TEAM_ROLES.SERVER,
+    role: BASE_TEAM_ROLES.SERVER,
     contact: "(555) 010-1007",
     email: "ariana@shiftsizzle.app",
-    preferredHours: 28,
+    shiftsPerWeek: 4,
     status: "active",
     availability: createAvailability(["Mid", "Close"]),
   },
-];
+].map((employee) => normalizeEmployee(employee));
 
-const buildAssignments = (employees, role, requirements) => {
+const buildAssignments = (
+  employees,
+  role,
+  requirements,
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) => {
   const assignments = Object.fromEntries(employees.map((employee) => [employee.id, {}]));
   const eligibleEmployees = employees.filter(
     (employee) => employee.role === role && employee.status !== "archived"
@@ -119,9 +261,10 @@ const buildAssignments = (employees, role, requirements) => {
   }
 
   let index = 0;
+  const openDays = DAYS.filter((day) => operatingHours[day]?.isOpen);
 
-  DAYS.forEach((day) => {
-    SHIFT_TYPES.forEach((shift) => {
+  openDays.forEach((day) => {
+    shiftTypes.forEach((shift) => {
       const needed = requirements[day]?.[shift] ?? 0;
       let attempts = 0;
       let filled = 0;
@@ -133,8 +276,13 @@ const buildAssignments = (employees, role, requirements) => {
 
         const availableShifts = candidate.availability?.[day] ?? [];
         const hasShiftAlready = assignments[candidate.id][day]?.includes(shift);
+        const assignedShiftCount = openDays.reduce(
+          (total, openDay) => total + ((assignments[candidate.id][openDay] ?? []).length),
+          0,
+        );
+        const maxShiftsPerWeek = normalizeShiftsPerWeek(candidate);
 
-        if (!availableShifts.includes(shift) || hasShiftAlready) {
+        if (!availableShifts.includes(shift) || hasShiftAlready || assignedShiftCount >= maxShiftsPerWeek) {
           continue;
         }
 
@@ -147,6 +295,27 @@ const buildAssignments = (employees, role, requirements) => {
   return assignments;
 };
 
+const createDefaultSchedule = (
+  employees = defaultEmployees,
+  shiftTypes = BASE_SHIFT_TYPES,
+  selectedRole = DEFAULT_TEAM_ROLE,
+  operatingHours = normalizeOperatingHours()
+) => {
+  const requirements = normalizeRequirements(createDefaultRequirements(shiftTypes), shiftTypes, operatingHours);
+
+  return {
+    weekLabel: "May 24 - May 30, 2026",
+    startDate: "2026-05-24",
+    endDate: "2026-05-30",
+    status: "draft",
+    selectedRole,
+    requirements,
+    assignments: buildAssignments(employees, selectedRole, requirements, shiftTypes, operatingHours),
+    notes: "Review closing coverage before Friday publish.",
+    lastPublishedAt: null,
+  };
+};
+
 const createDefaultState = () => ({
   settings: {
     businessName: "ShiftSizzle",
@@ -154,19 +323,12 @@ const createDefaultState = () => ({
     currentUserName: "Jennifer",
     schedulerName: "Jennifer Ray",
     publishNotifications: true,
+    shiftTypes: [...BASE_SHIFT_TYPES],
+    additionalTeamRoles: [],
+    operatingHours: normalizeOperatingHours(),
   },
   employees: defaultEmployees,
-  schedule: {
-    weekLabel: "May 24 - May 30, 2026",
-    startDate: "2026-05-24",
-    endDate: "2026-05-30",
-    status: "draft",
-    selectedRole: TEAM_ROLES.MANAGER,
-    requirements: defaultRequirements,
-    assignments: buildAssignments(defaultEmployees, TEAM_ROLES.MANAGER, defaultRequirements),
-    notes: "Review closing coverage before Friday publish.",
-    lastPublishedAt: null,
-  },
+  schedule: createDefaultSchedule(defaultEmployees, BASE_SHIFT_TYPES, DEFAULT_TEAM_ROLE, normalizeOperatingHours()),
   messages: [
     {
       id: 1,
@@ -179,11 +341,41 @@ const createDefaultState = () => ({
   ],
 });
 
-const normalizeSettings = (settings = {}) => ({
-  ...createDefaultState().settings,
-  ...settings,
-  businessName: "ShiftSizzle",
-});
+const normalizeSettings = (settings = {}) => {
+  const normalizedSettings = {
+    ...createDefaultState().settings,
+    ...settings,
+    businessName: "ShiftSizzle",
+  };
+
+  return {
+    ...normalizedSettings,
+    shiftTypes: getShiftTypes(normalizedSettings),
+    additionalTeamRoles: getUniqueValues(normalizedSettings.additionalTeamRoles).filter(
+      (role) => !Object.values(BASE_TEAM_ROLES).includes(role)
+    ),
+    operatingHours: normalizeOperatingHours(normalizedSettings.operatingHours),
+  };
+};
+
+const normalizeSchedule = (schedule = {}, employees = [], settings = {}) => {
+  const shiftTypes = getShiftTypes(settings);
+  const teamRoles = getTeamRoles(settings, employees);
+  const operatingHours = normalizeOperatingHours(settings.operatingHours);
+  const selectedRole = teamRoles.includes(schedule.selectedRole) ? schedule.selectedRole : teamRoles[0];
+  const requirements = normalizeRequirements(schedule.requirements, shiftTypes, operatingHours);
+  const assignments = Object.keys(schedule.assignments ?? {}).length
+    ? normalizeAssignments(schedule.assignments, employees, shiftTypes, operatingHours)
+    : buildAssignments(employees, selectedRole, requirements, shiftTypes, operatingHours);
+
+  return {
+    ...createDefaultSchedule(employees, shiftTypes, selectedRole, operatingHours),
+    ...schedule,
+    selectedRole,
+    requirements,
+    assignments,
+  };
+};
 
 const AppStateContext = createContext(null);
 
@@ -200,11 +392,17 @@ const hydrateState = () => {
 
   try {
     const parsedState = JSON.parse(storedState);
+    const settings = normalizeSettings(parsedState.settings);
+    const shiftTypes = getShiftTypes(settings);
+    const employees = (parsedState.employees ?? defaultEmployees).map((employee) => normalizeEmployee(employee, shiftTypes));
+    const schedule = normalizeSchedule(parsedState.schedule, employees, settings);
 
     return {
       ...createDefaultState(),
       ...parsedState,
-      settings: normalizeSettings(parsedState.settings),
+      settings,
+      employees,
+      schedule,
     };
   } catch {
     return createDefaultState();
@@ -214,9 +412,10 @@ const hydrateState = () => {
 const appStateReducer = (state, action) => {
   switch (action.type) {
     case "UPSERT_EMPLOYEE": {
+      const shiftTypes = getShiftTypes(state.settings);
       const employee = {
         ...action.payload,
-        availability: action.payload.availability ?? createAvailability(),
+        availability: normalizeAvailability(action.payload.availability ?? createAvailability(shiftTypes), shiftTypes),
         status: action.payload.status ?? "active",
       };
       const employeeExists = state.employees.some((currentEmployee) => currentEmployee.id === employee.id);
@@ -248,13 +447,14 @@ const appStateReducer = (state, action) => {
       };
     }
     case "IMPORT_EMPLOYEES": {
+      const shiftTypes = getShiftTypes(state.settings);
       const employees = action.payload.reduce((nextEmployees, employee) => {
-        const normalizedEmployee = {
+        const normalizedEmployee = normalizeEmployee({
           ...employee,
           id: employee.id ?? Date.now() + nextEmployees.length,
-          availability: employee.availability ?? createAvailability(),
+          availability: employee.availability ?? createAvailability(shiftTypes),
           status: employee.status ?? "active",
-        };
+        }, shiftTypes);
         const existingEmployeeIndex = nextEmployees.findIndex((currentEmployee) => currentEmployee.id === normalizedEmployee.id);
 
         if (existingEmployeeIndex === -1) {
@@ -272,21 +472,39 @@ const appStateReducer = (state, action) => {
       };
     }
     case "UPDATE_SETTINGS": {
+      const settings = normalizeSettings({
+        ...state.settings,
+        ...action.payload,
+      });
+      const shiftTypes = getShiftTypes(settings);
+      const operatingHours = normalizeOperatingHours(settings.operatingHours);
+      const employees = state.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
+      const teamRoles = getTeamRoles(settings, employees);
+      const selectedRole = teamRoles.includes(state.schedule.selectedRole) ? state.schedule.selectedRole : teamRoles[0];
+      const requirements = normalizeRequirements(state.schedule.requirements, shiftTypes, operatingHours);
+      const assignments = normalizeAssignments(state.schedule.assignments, employees, shiftTypes, operatingHours);
+
       return {
         ...state,
-        settings: {
-          ...state.settings,
-          ...action.payload,
-          businessName: "ShiftSizzle",
+        settings,
+        employees,
+        schedule: {
+          ...state.schedule,
+          selectedRole,
+          requirements,
+          assignments,
+          status: "draft",
         },
       };
     }
     case "UPDATE_REQUIREMENTS": {
+      const shiftTypes = getShiftTypes(state.settings);
+
       return {
         ...state,
         schedule: {
           ...state.schedule,
-          requirements: action.payload,
+          requirements: normalizeRequirements(action.payload, shiftTypes, state.settings.operatingHours),
           status: "draft",
         },
       };
@@ -298,7 +516,13 @@ const appStateReducer = (state, action) => {
           ...state.schedule,
           selectedRole: action.payload,
           status: "draft",
-          assignments: buildAssignments(state.employees, action.payload, state.schedule.requirements),
+          assignments: buildAssignments(
+            state.employees,
+            action.payload,
+            state.schedule.requirements,
+            getShiftTypes(state.settings),
+            state.settings.operatingHours
+          ),
         },
       };
     }
@@ -334,7 +558,9 @@ const appStateReducer = (state, action) => {
           assignments: buildAssignments(
             state.employees,
             state.schedule.selectedRole,
-            state.schedule.requirements
+            state.schedule.requirements,
+            getShiftTypes(state.settings),
+            state.settings.operatingHours
           ),
         },
       };

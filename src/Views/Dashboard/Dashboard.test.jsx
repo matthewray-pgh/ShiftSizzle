@@ -10,5 +10,8 @@ describe('Dashboard view', () => {
 
     expect(screen.getByText('Hello, Jennifer')).toBeInTheDocument();
     expect(screen.getByText('Active employees')).toBeInTheDocument();
+    expect(screen.getByText('Business Hours')).toBeInTheDocument();
+    expect(screen.getByText('Sun-Thu')).toBeInTheDocument();
+    expect(screen.getByText('11:00 AM - 9:00 PM')).toBeInTheDocument();
   });
 });

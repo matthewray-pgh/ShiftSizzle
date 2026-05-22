@@ -103,6 +103,23 @@ describe('Team view', () => {
     expect(screen.getByRole('button', { name: /All 7/ })).toBeInTheDocument();
   });
 
+  it('shows shifts per week in both card and list roster views', () => {
+    renderView(Team);
+
+    const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
+
+    expect(jenCard).not.toBeNull();
+    expect(within(jenCard).getByText('5 shifts/week')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }));
+
+    const jenRow = screen.getByText('Jen Ray').closest('tr');
+
+    expect(screen.getByText('Shifts / Week')).toBeInTheDocument();
+    expect(jenRow).not.toBeNull();
+    expect(within(jenRow).getByText('5 shifts/week')).toBeInTheDocument();
+  });
+
   it('persists day-specific availability updates when editing a team member', () => {
     renderView(Team);
 
@@ -160,6 +177,21 @@ describe('Team view', () => {
     expect(within(jenCard).getByText('Availability: Unavailable all week')).toBeInTheDocument();
   });
 
+  it('selects every shift in the availability tab with the select all quick action', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear week' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Employee' }));
+
+    const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
+
+    expect(jenCard).not.toBeNull();
+    expect(within(jenCard).getByText(/Availability: Open, Mid, Close \(Sun, Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
+  });
+
   it('shows an empty state when filters exclude all employees', () => {
     renderView(Team);
 
@@ -208,6 +240,19 @@ describe('Team view', () => {
 
     expect(screen.getByText('Name is required.')).toBeInTheDocument();
     expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
+  });
+
+  it('saves shifts per week when creating a team member', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getAllByText('Add Employee')[0]);
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Taylor Lee' } });
+    fireEvent.change(screen.getByLabelText('Shifts Per Week'), { target: { value: '3' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Employee' })[1]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Taylor Lee' }));
+
+    expect(screen.getByLabelText('Shifts Per Week')).toHaveValue(3);
   });
 
   it('toggles between card and list views', () => {

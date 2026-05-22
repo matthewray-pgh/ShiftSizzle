@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button, ContentPanel, InputField } from '../../Components';
-import { DAYS, SHIFT_TYPES, TEAM_ROLES, useAppState } from '../../state/AppState';
+import { BASE_TEAM_ROLES, DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
 import {
   buildRosterImportPreview,
   createBlankRosterTemplateCsv,
@@ -15,8 +15,6 @@ const VIEW_MODES = Object.freeze({
   CARD: 'card',
   LIST: 'list',
 });
-
-const ROLE_FILTER_OPTIONS = ['All roles', ...Object.values(TEAM_ROLES)];
 
 const STATUS_FILTER_OPTIONS = [
   { value: 'active', label: 'Active' },
@@ -38,21 +36,21 @@ const ROSTER_IMPORT_MODES = [
   { value: 'upsert', label: 'Add and update matches' },
 ];
 
-const createDefaultAvailability = () => Object.fromEntries(DAYS.map((day) => [day, [...SHIFT_TYPES]]));
+const createDefaultAvailability = (shiftTypes) => Object.fromEntries(DAYS.map((day) => [day, [...shiftTypes]]));
 
-const normalizeAvailability = (availability = {}) => Object.fromEntries(
-  DAYS.map((day) => [day, [...(availability[day] ?? SHIFT_TYPES)]])
+const normalizeAvailability = (availability = {}, shiftTypes) => Object.fromEntries(
+  DAYS.map((day) => [day, [...(availability[day] ?? shiftTypes)]])
 );
 
-const createEmptyForm = () => ({
+const createEmptyForm = (teamRoles, shiftTypes) => ({
   id: null,
   name: '',
   title: '',
-  role: TEAM_ROLES.MANAGER,
+  role: teamRoles[0] ?? BASE_TEAM_ROLES.MANAGER,
   contact: '',
   email: '',
-  preferredHours: 40,
-  availability: createDefaultAvailability(),
+  shiftsPerWeek: 5,
+  availability: createDefaultAvailability(shiftTypes),
 });
 
 const createEmptyTouched = () => ({
@@ -116,13 +114,18 @@ const getAvailabilitySummary = (availability = {}) => {
     .join(' · ');
 };
 
+  const formatShiftsPerWeek = (shiftsPerWeek = 0) => `${shiftsPerWeek} ${shiftsPerWeek === 1 ? 'shift' : 'shifts'}/week`;
+
 export const Team = () => {
   const { state, dispatch } = useAppState();
-  const { employees } = state;
+  const { employees, settings } = state;
+  const shiftTypes = getShiftTypes(settings);
+  const teamRoles = getTeamRoles(settings, employees);
+  const roleFilterOptions = ['All roles', ...teamRoles];
   const hasEmployees = employees.length > 0;
 
-  const [form, setForm] = useState(createEmptyForm());
-  const [formErrors, setFormErrors] = useState(validateForm(createEmptyForm()));
+  const [form, setForm] = useState(createEmptyForm(teamRoles, shiftTypes));
+  const [formErrors, setFormErrors] = useState(validateForm(createEmptyForm(teamRoles, shiftTypes)));
   const [touched, setTouched] = useState(createEmptyTouched());
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -283,7 +286,7 @@ export const Team = () => {
     }));
   };
 
-  const resetFormState = (nextForm = createEmptyForm()) => {
+  const resetFormState = (nextForm = createEmptyForm(teamRoles, shiftTypes)) => {
     setForm(nextForm);
     setFormErrors(validateForm(nextForm));
     setTouched(createEmptyTouched());
@@ -313,9 +316,9 @@ export const Team = () => {
         role: form.role,
         contact: form.contact.trim(),
         email: form.email.trim(),
-        preferredHours: Number(form.preferredHours) || 0,
+        shiftsPerWeek: Math.max(0, Number(form.shiftsPerWeek) || 0),
         status: 'active',
-        availability: normalizeAvailability(form.availability),
+        availability: normalizeAvailability(form.availability, shiftTypes),
       },
     });
 
@@ -362,8 +365,8 @@ export const Team = () => {
       role: employee.role,
       contact: employee.contact,
       email: employee.email,
-      preferredHours: employee.preferredHours,
-      availability: normalizeAvailability(employee.availability),
+      shiftsPerWeek: employee.shiftsPerWeek ?? 5,
+      availability: normalizeAvailability(employee.availability, shiftTypes),
     };
     resetFormState(nextForm);
     setActiveModalTab(MODAL_TABS.DETAILS);
@@ -406,8 +409,12 @@ export const Team = () => {
     applyAvailabilityToDays(DAYS, () => []);
   };
 
+  const selectFullWeekAvailability = () => {
+    applyAvailabilityToDays(DAYS, () => shiftTypes);
+  };
+
   const setWeekdaysOnlyAvailability = () => {
-    applyAvailabilityToDays(DAYS, (day) => (WEEKDAY_DAYS.includes(day) ? SHIFT_TYPES : []));
+    applyAvailabilityToDays(DAYS, (day) => (WEEKDAY_DAYS.includes(day) ? shiftTypes : []));
   };
 
   const closeModal = () => {
@@ -515,7 +522,7 @@ export const Team = () => {
     }
 
     const csvText = await file.text();
-    const parsedImport = parseRosterCsv(csvText, Object.values(TEAM_ROLES));
+    const parsedImport = parseRosterCsv(csvText, teamRoles);
 
     setImportFileName(file.name);
     setImportRows(parsedImport.rows);
@@ -694,7 +701,7 @@ export const Team = () => {
                 className="team__primary-action"
               >
                 <span className="team__action-icon" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                  <i className="fas fa-plus" />
                 </span>
                 Add Employee
               </Button>
@@ -741,7 +748,7 @@ export const Team = () => {
                     </button>
                   )}
                   <div ref={roleChipsRef} className="team__filter-chips" role="group" aria-label="Filter by role">
-                    {ROLE_FILTER_OPTIONS.map((role) => (
+                    {roleFilterOptions.map((role) => (
                       <button
                         key={role}
                         type="button"
@@ -807,7 +814,7 @@ export const Team = () => {
             <div className="team__empty-state-actions">
               <Button type="button" className="team__primary-action" onClick={openCreateModal}>
                 <span className="team__action-icon" aria-hidden="true">
-                  <i className="fas fa-user-plus" />
+                  <i className="fas fa-plus" />
                 </span>
                 Add first employee
               </Button>
@@ -864,6 +871,7 @@ export const Team = () => {
                 </div>
                 <div className="team__member-title">{emp.title}</div>
                 <div className="team__member-role">{emp.role}</div>
+                <div className="team__member-shifts">{formatShiftsPerWeek(emp.shiftsPerWeek)}</div>
                 <div className="team__member-contact">📞 {emp.contact || 'N/A'}</div>
                 <div className="team__member-email">✉️ {emp.email || 'N/A'}</div>
                 <div className="team__member-status">Status: {renderStatusBadge(emp.status)}</div>
@@ -882,6 +890,7 @@ export const Team = () => {
                   <th>Role</th>
                   <th>Status</th>
                   <th>Contact</th>
+                  <th>Shifts / Week</th>
                   <th>Availability</th>
                   <th>Actions</th>
                 </tr>
@@ -899,6 +908,7 @@ export const Team = () => {
                       <div>{employee.contact || 'N/A'}</div>
                       <div className="team__table-subtitle">{employee.email || 'N/A'}</div>
                     </td>
+                    <td className="team__table-shifts">{formatShiftsPerWeek(employee.shiftsPerWeek)}</td>
                     <td className="team__table-availability">{getAvailabilitySummary(employee.availability)}</td>
                     <td>
                       <div className="team__table-actions">
@@ -985,7 +995,7 @@ export const Team = () => {
                       value={form.role}
                       onChange={(value) => updateFormField('role', value)}
                       type="select"
-                      options={Object.values(TEAM_ROLES)}
+                      options={teamRoles}
                       onBlur={() => handleFieldBlur('role')}
                       aria-invalid={Boolean(touched.role && formErrors.role)}
                     />
@@ -1005,6 +1015,15 @@ export const Team = () => {
                       aria-invalid={Boolean(touched.email && formErrors.email)}
                     />
                     {touched.email && formErrors.email && <p className="team__field-error">{formErrors.email}</p>}
+                    <InputField
+                      label="Shifts Per Week"
+                      name="shiftsPerWeek"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={form.shiftsPerWeek}
+                      onChange={(value) => updateFormField('shiftsPerWeek', value)}
+                    />
                     <section className="team__availability-summary-card" aria-label="Availability summary">
                       <div className="team__availability-summary-header">
                         <div>
@@ -1039,6 +1058,13 @@ export const Team = () => {
                         <button
                           type="button"
                           className="team__availability-action"
+                          onClick={selectFullWeekAvailability}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="team__availability-action"
                           onClick={setWeekdaysOnlyAvailability}
                         >
                           Weekdays only
@@ -1062,7 +1088,7 @@ export const Team = () => {
                                 <span>{dayAvailability.length ? `${dayAvailability.length} selected` : 'Unavailable'}</span>
                               </div>
                               <div className="team__availability-day-chips">
-                                {SHIFT_TYPES.map((shift) => (
+                                {shiftTypes.map((shift) => (
                                   <button
                                     key={`${day}-${shift}`}
                                     type="button"
@@ -1086,7 +1112,7 @@ export const Team = () => {
               <div className="team__modal-actions">
                 <Button type="submit" className="team__modal-primary-action">
                   <span className="team__action-icon" aria-hidden="true">
-                    <i className={`fas ${form.id ? 'fa-save' : 'fa-user-plus'}`} />
+                    <i className={`fas ${form.id ? 'fa-save' : 'fa-plus'}`} />
                   </span>
                   {form.id ? 'Update Employee' : 'Add Employee'}
                 </Button>

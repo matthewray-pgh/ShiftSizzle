@@ -579,9 +579,6 @@
     box-sizing: border-box;
     border: 1px solid rgba(37, 99, 235, 0.12);
     border-radius: 18px;
-    background:
-      radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 42%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
     box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 
@@ -636,6 +633,19 @@
     color: #1d4ed8;
     font-size: 0.92rem;
     font-weight: 600;
+  }
+
+  &__member-shifts {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
   }
 
   &__member-status,
@@ -779,7 +789,7 @@
 
     th:nth-child(1),
     td:nth-child(1) {
-      width: 16%;
+      width: 15%;
       max-width: 16rem;
     }
 
@@ -797,19 +807,25 @@
 
     th:nth-child(4),
     td:nth-child(4) {
-      width: 18%;
-      max-width: 15rem;
+      width: 16%;
+      max-width: 14rem;
     }
 
     th:nth-child(5),
     td:nth-child(5) {
-      width: 30%;
-      max-width: 20rem;
+      width: 12%;
+      max-width: 9rem;
     }
 
     th:nth-child(6),
     td:nth-child(6) {
-      width: 13%;
+      width: 22%;
+      max-width: 16rem;
+    }
+
+    th:nth-child(7),
+    td:nth-child(7) {
+      width: 12%;
       max-width: 9rem;
     }
 
@@ -843,6 +859,13 @@
   }
 
   &__table-status {
+    white-space: nowrap;
+  }
+
+  &__table-shifts {
+    color: #1d4ed8;
+    font-size: 0.84rem;
+    font-weight: 700;
     white-space: nowrap;
   }
 
@@ -1563,7 +1586,7 @@
     }
 
     &__table {
-      min-width: 820px;
+      min-width: 940px;
     }
 
     &__availability-grid {
