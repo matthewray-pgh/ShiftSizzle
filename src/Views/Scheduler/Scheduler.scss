@@ -1,0 +1,230 @@
+@use '../../Assets/Styles.scss' as styles;
+
+.scheduler {
+  &__hero,
+  &__section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  &__subhead {
+    margin: 8px 0 0;
+    color: styles.$text-secondary;
+  }
+
+  &__status {
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-weight: 700;
+    text-transform: capitalize;
+
+    &--draft {
+      background: rgba(245, 158, 11, 0.15);
+      color: styles.$warning;
+    }
+
+    &--published {
+      background: rgba(34, 197, 94, 0.15);
+      color: styles.$success;
+    }
+  }
+
+  &__control-grid,
+  &__visual-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+  }
+
+  &__control-card,
+  &__visual-block,
+  &__open-shifts {
+    padding: 18px;
+    border-radius: 16px;
+    background: styles.$background;
+  }
+
+  &__label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+
+  &__role-select {
+    font-size: 16px;
+    padding: 5px 8px;
+    width: 100%;
+    height: auto;
+    min-height: 32px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+
+    option {
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+  }
+
+  &__stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+
+    div {
+      padding: 12px;
+      border-radius: 14px;
+      background: #fff;
+      text-align: center;
+    }
+
+    span {
+      display: block;
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    small {
+      color: styles.$text-secondary;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  &__requirements-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th,
+    td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      text-align: left;
+    }
+
+    th {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      color: styles.$text-secondary;
+    }
+  }
+
+  &__requirements-input {
+    width: 58px;
+    padding: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+  }
+
+  &__notes {
+    width: min(320px, 100%);
+    min-height: 92px;
+    padding: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+    font: inherit;
+    resize: vertical;
+  }
+
+  &__assignment-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  &__employee-card {
+    padding: 18px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #fff 0%, #faf8f4 100%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  &__employee-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+
+    strong,
+    span,
+    small {
+      display: block;
+    }
+
+    span,
+    small {
+      color: styles.$text-secondary;
+    }
+  }
+
+  &__day-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  &__day-row {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+
+  &__shift-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__shift-toggle {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    background: #fff;
+    cursor: pointer;
+
+    &.is-active {
+      background: styles.$primary;
+      border-color: styles.$primary;
+      color: #fff;
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+
+  &__open-shifts {
+    margin-top: 18px;
+
+    h3 {
+      margin-top: 0;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+  }
+}
+
+@media (max-width: 700px) {
+  .scheduler {
+    &__hero,
+    &__section-header {
+      flex-direction: column;
+    }
+
+    &__stats-row {
+      grid-template-columns: 1fr;
+    }
+  }
+}

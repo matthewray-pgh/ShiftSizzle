@@ -1,0 +1,12 @@
+@use '../../Assets/Styles.scss' as styles;
+
+.settings {
+  &__form {
+    max-width: 520px;
+  }
+
+  &__saved {
+    margin-top: 12px;
+    color: styles.$success;
+  }
+}

@@ -10,9 +10,9 @@ export const ContentPanelHeader = ({ title }) => {
   );
 };
 
-export const ContentPanel = ({ children }) => {
+export const ContentPanel = ({ children, className = "" }) => {
   return (
-    <div className="content-panel">
+    <div className={`content-panel ${className}`.trim()}>
       {children}
     </div>
   );
