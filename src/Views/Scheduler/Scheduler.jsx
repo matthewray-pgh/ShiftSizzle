@@ -8,11 +8,16 @@ import {
   EmployeeDayCalendarView,
   VerticalStackedShifts,
 } from '../../Components/Visuals';
-import { DAYS, SHIFT_TYPES, TEAM_ROLES, useAppState } from '../../state/AppState';
+import { getOpenDays, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
+
+const formatShiftsPerWeek = (shiftsPerWeek = 0) => `${shiftsPerWeek} ${shiftsPerWeek === 1 ? 'shift' : 'shifts'}/week`;
 
 export const Scheduler = () => {
   const { state, dispatch } = useAppState();
-  const { employees, schedule } = state;
+  const { employees, schedule, settings } = state;
+  const openDays = getOpenDays(settings);
+  const shiftTypes = getShiftTypes(settings);
+  const teamRoles = getTeamRoles(settings, employees);
   const selectedRole = schedule.selectedRole;
 
   const handleRequirementChange = (day, shift, value) => {
@@ -39,8 +44,8 @@ export const Scheduler = () => {
 
   const openShifts = useMemo(
     () =>
-      DAYS.flatMap((day) =>
-        SHIFT_TYPES.flatMap((shift) => {
+      openDays.flatMap((day) =>
+        shiftTypes.flatMap((shift) => {
           const required = schedule.requirements[day]?.[shift] ?? 0;
           const assigned = filteredEmployees.reduce(
             (count, employee) => count + ((schedule.assignments[employee.id]?.[day] ?? []).includes(shift) ? 1 : 0),
@@ -50,17 +55,17 @@ export const Scheduler = () => {
           return assigned >= required ? [] : [{ day, shift, open: required - assigned }];
         })
       ),
-    [filteredEmployees, schedule.assignments, schedule.requirements]
+    [filteredEmployees, openDays, schedule.assignments, schedule.requirements, shiftTypes]
   );
 
   const scheduledTotals = useMemo(
     () =>
       filteredEmployees.reduce(
         (count, employee) =>
-          count + DAYS.reduce((dayCount, day) => dayCount + (schedule.assignments[employee.id]?.[day] ?? []).length, 0),
+          count + openDays.reduce((dayCount, day) => dayCount + (schedule.assignments[employee.id]?.[day] ?? []).length, 0),
         0
       ),
-    [filteredEmployees, schedule.assignments]
+    [filteredEmployees, openDays, schedule.assignments]
   );
 
   return (
@@ -86,7 +91,7 @@ export const Scheduler = () => {
               onChange={handleRoleChange}
               className="scheduler__role-select"
             >
-              {Object.values(TEAM_ROLES).map((role) => (
+              {teamRoles.map((role) => (
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
@@ -115,34 +120,38 @@ export const Scheduler = () => {
           </div>
           <div className="scheduler__control-card">
             <h3>Coverage Targets</h3>
-            <table className="scheduler__requirements-table">
-              <thead>
-                <tr>
-                  <th>Day</th>
-                  {SHIFT_TYPES.map((shift) => (
-                    <th key={shift}>{shift}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {DAYS.map((day) => (
-                  <tr key={day}>
-                    <td>{day}</td>
-                    {SHIFT_TYPES.map((shift) => (
-                      <td key={shift}>
-                        <input
-                          type="number"
-                          min={0}
-                          value={schedule.requirements[day][shift]}
-                          onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
-                          className="scheduler__requirements-input"
-                        />
-                      </td>
+            {openDays.length ? (
+              <table className="scheduler__requirements-table">
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    {shiftTypes.map((shift) => (
+                      <th key={shift}>{shift}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {openDays.map((day) => (
+                    <tr key={day}>
+                      <td>{day}</td>
+                      {shiftTypes.map((shift) => (
+                        <td key={shift}>
+                          <input
+                            type="number"
+                            min={0}
+                            value={schedule.requirements[day][shift]}
+                            onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
+                            className="scheduler__requirements-input"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>No operating days are enabled. Update business hours in Settings to plan coverage.</p>
+            )}
           </div>
         </div>
       </ContentPanel>
@@ -160,7 +169,9 @@ export const Scheduler = () => {
             placeholder="Schedule notes"
           />
         </div>
-        {filteredEmployees.length ? (
+        {openDays.length === 0 ? (
+          <p>No operating days are enabled. Update business hours in Settings to build the weekly schedule.</p>
+        ) : filteredEmployees.length ? (
           <div className="scheduler__assignment-grid">
             {filteredEmployees.map((employee) => (
               <article key={employee.id} className="scheduler__employee-card">
@@ -168,14 +179,15 @@ export const Scheduler = () => {
                   <div>
                     <strong>{employee.name}</strong>
                     <span>{employee.title}</span>
+                    <small className="scheduler__employee-cap">{formatShiftsPerWeek(employee.shiftsPerWeek)}</small>
                   </div>
                 </div>
                 <div className="scheduler__day-list">
-                  {DAYS.map((day) => (
+                  {openDays.map((day) => (
                     <div key={`${employee.id}-${day}`} className="scheduler__day-row">
                       <span>{day.slice(0, 3)}</span>
                       <div className="scheduler__shift-buttons">
-                        {SHIFT_TYPES.map((shift) => {
+                        {shiftTypes.map((shift) => {
                           const isAssigned = (schedule.assignments[employee.id]?.[day] ?? []).includes(shift);
                           const isAvailable = (employee.availability?.[day] ?? []).includes(shift);
 
@@ -220,16 +232,16 @@ export const Scheduler = () => {
         <h2>Schedule Visualizations</h2>
         <div className="scheduler__visual-block">
           <h3>Calendar View</h3>
-          <EmployeeDayCalendarView days={DAYS} shiftTypes={SHIFT_TYPES} managers={filteredEmployees} assignments={schedule.assignments} />
+          <EmployeeDayCalendarView days={openDays} shiftTypes={shiftTypes} managers={filteredEmployees} assignments={schedule.assignments} />
         </div>
         <div className="scheduler__visual-grid">
           <div className="scheduler__visual-block">
             <h3>Total Shifts Needed Per Day</h3>
-            <BarChart days={DAYS} shiftRequirements={schedule.requirements} assignments={schedule.assignments} managers={filteredEmployees} />
+            <BarChart days={openDays} shiftRequirements={schedule.requirements} assignments={schedule.assignments} managers={filteredEmployees} />
           </div>
           <div className="scheduler__visual-block">
             <h3>Vertical Day / Shift View</h3>
-            <VerticalStackedShifts days={DAYS} shiftTypes={SHIFT_TYPES} managers={filteredEmployees} assignments={schedule.assignments} />
+            <VerticalStackedShifts days={openDays} shiftTypes={shiftTypes} managers={filteredEmployees} assignments={schedule.assignments} />
           </div>
         </div>
       </ContentPanel>

@@ -8,7 +8,7 @@ export function BarChart({ days, shiftRequirements, assignments, managers }) {
   const scheduledTotals = days.map(day => {
     return managers.reduce((sum, m) => sum + ((assignments[m.id][day] || []).length), 0);
   });
-  const max = Math.max(...requiredTotals, ...scheduledTotals);
+  const max = Math.max(1, ...requiredTotals, ...scheduledTotals);
   const barWidth = 40;
   const chartHeight = 100;
   return (

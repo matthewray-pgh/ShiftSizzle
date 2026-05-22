@@ -164,6 +164,20 @@
     }
   }
 
+  &__employee-cap {
+    margin-top: 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
   &__day-list {
     display: flex;
     flex-direction: column;
