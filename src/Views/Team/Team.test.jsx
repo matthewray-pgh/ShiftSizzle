@@ -1,0 +1,400 @@
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
+import { AppStateProvider } from '../../state/AppState';
+import { renderView } from '../../test/renderView';
+import { Team } from './Team';
+
+const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+
+describe('Team view', () => {
+  it('renders the team page', () => {
+    renderView(Team);
+
+    expect(screen.getByText('Add Employee')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search employees')).toBeInTheDocument();
+  });
+
+  it('can archive and reactivate a team member', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderView(Team);
+
+    fireEvent.click(screen.getAllByText('Archive')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+
+    expect(screen.getByText('Reactivate')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Reactivate'));
+
+    expect(screen.queryByText('Reactivate')).not.toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it('does not archive a team member when confirmation is cancelled', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    renderView(Team);
+
+    fireEvent.click(screen.getAllByText('Archive')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+
+    expect(screen.queryByText('Reactivate')).not.toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it('filters team members by role chip', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bartender' }));
+
+    expect(screen.getByText('Kayla Brooks')).toBeInTheDocument();
+    expect(screen.queryByText('Jen Ray')).not.toBeInTheDocument();
+  });
+
+  it('scrolls role chips when the overflow chevrons are clicked', () => {
+    window.innerWidth = 1024;
+    window.dispatchEvent(new Event('resize'));
+
+    renderView(Team);
+
+    const roleChipGroup = screen.getByRole('group', { name: 'Filter by role' });
+    let scrollLeft = 40;
+
+    Object.defineProperty(roleChipGroup, 'clientWidth', {
+      configurable: true,
+      value: 120,
+    });
+    Object.defineProperty(roleChipGroup, 'scrollWidth', {
+      configurable: true,
+      value: 420,
+    });
+    Object.defineProperty(roleChipGroup, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value) => {
+        scrollLeft = value;
+      },
+    });
+
+    roleChipGroup.scrollTo = vi.fn(({ left }) => {
+      scrollLeft = left;
+    });
+
+    window.dispatchEvent(new Event('resize'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll roles to end' }));
+    expect(roleChipGroup.scrollTo).toHaveBeenCalledWith({ left: 420, behavior: 'smooth' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll roles to beginning' }));
+    expect(roleChipGroup.scrollTo).toHaveBeenLastCalledWith({ left: 0, behavior: 'smooth' });
+
+    window.innerWidth = 1280;
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  it('shows counts in the status control', () => {
+    renderView(Team);
+
+    expect(screen.getByRole('button', { name: /Active 7/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Archived 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /All 7/ })).toBeInTheDocument();
+  });
+
+  it('persists day-specific availability updates when editing a team member', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sunday Open' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sunday Mid' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sunday Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Employee' }));
+
+    const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
+
+    expect(jenCard).not.toBeNull();
+    expect(within(jenCard).getByText(/Availability: Open, Mid, Close \(Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
+  });
+
+  it('switches between details and availability tabs in the editor', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByText('Add Employee'));
+
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
+
+    expect(screen.getByRole('tab', { name: /Availability/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Sunday Open' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+  });
+
+  it('shows a compact availability summary on the details tab', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByText('Add Employee'));
+
+    const availabilitySummary = screen.getByLabelText('Availability summary');
+
+    expect(screen.getByText('Availability snapshot')).toBeInTheDocument();
+    expect(screen.getByText('21 shifts selected')).toBeInTheDocument();
+    expect(within(availabilitySummary).getByText(/Open, Mid, Close \(Sun, Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
+  });
+
+  it('applies availability quick actions from the availability tab', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear week' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Employee' }));
+
+    const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
+
+    expect(jenCard).not.toBeNull();
+    expect(within(jenCard).getByText('Availability: Unavailable all week')).toBeInTheDocument();
+  });
+
+  it('shows an empty state when filters exclude all employees', () => {
+    renderView(Team);
+
+    fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'zzzz-no-match' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run employee search' }));
+
+    expect(screen.getByText('No team members match these filters.')).toBeInTheDocument();
+  });
+
+  it('shows a first-run empty state before any employees have been added', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees: [] }));
+
+    render(
+      <AppStateProvider>
+        <Team />
+      </AppStateProvider>
+    );
+
+    expect(screen.getByText('Add your first employee to build the team roster.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add first employee' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import roster' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download blank template' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Search employees')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Filter by role' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Filter by status' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Team view mode' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No team members match these filters.')).not.toBeInTheDocument();
+  });
+
+  it('runs search when pressing enter in the search input', () => {
+    renderView(Team);
+
+    fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'zzzz-no-match' } });
+    fireEvent.submit(screen.getByRole('searchbox', { name: 'Search employees' }));
+
+    expect(screen.getByText('No team members match these filters.')).toBeInTheDocument();
+  });
+
+  it('shows inline validation errors on blur', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByText('Add Employee'));
+    fireEvent.blur(screen.getByLabelText('Name'));
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'not-an-email' } });
+    fireEvent.blur(screen.getByLabelText('Email'));
+
+    expect(screen.getByText('Name is required.')).toBeInTheDocument();
+    expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
+  });
+
+  it('toggles between card and list views', () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }));
+
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Availability')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Archive').length).toBeGreaterThan(0);
+  });
+
+  it('uses card view only on mobile and hides the toggle control', () => {
+    window.innerWidth = 768;
+    window.dispatchEvent(new Event('resize'));
+
+    renderView(Team);
+
+    expect(screen.queryByRole('group', { name: 'Team view mode' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Jen Ray' })).toHaveClass('team__edit-link--card');
+
+    window.innerWidth = 1024;
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  it('collapses roster downloads into a menu on tighter desktop widths', () => {
+    window.innerWidth = 1024;
+    window.dispatchEvent(new Event('resize'));
+
+    renderView(Team);
+
+    expect(screen.queryByRole('button', { name: 'Blank template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export roster' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import roster' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Roster tools' }));
+
+    expect(screen.getByRole('menu', { name: 'Roster tools menu' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Import roster' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Blank template' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Export roster' })).toBeInTheDocument();
+
+    window.innerWidth = 1280;
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  it('supports keyboard navigation in the compact desktop roster tools menu', () => {
+    window.innerWidth = 1024;
+    window.dispatchEvent(new Event('resize'));
+
+    renderView(Team);
+
+    const rosterToolsButton = screen.getByRole('button', { name: 'Roster tools' });
+
+    fireEvent.keyDown(rosterToolsButton, { key: 'ArrowDown' });
+
+    const importMenuItem = screen.getByRole('menuitem', { name: 'Import roster' });
+    expect(importMenuItem).toHaveFocus();
+
+    fireEvent.keyDown(importMenuItem, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'Blank template' })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Blank template' }), { key: 'End' });
+    expect(screen.getByRole('menuitem', { name: 'Export roster' })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Export roster' }), { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Roster tools menu' })).not.toBeInTheDocument();
+    expect(rosterToolsButton).toHaveFocus();
+
+    window.innerWidth = 1280;
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  it('imports a roster csv from the modal workflow', async () => {
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }));
+
+    expect(screen.getByLabelText('Roster import note')).toBeInTheDocument();
+
+    const rosterFile = new File([
+      [
+        'name,title,role,contact,email,status',
+        'Taylor Lee,Lead Server,Server,(555) 010-2001,taylor@shiftsizzle.app,active',
+      ].join('\n'),
+    ], 'roster.csv', { type: 'text/csv' });
+
+    fireEvent.change(screen.getByLabelText('Roster CSV file'), {
+      target: { files: [rosterFile] },
+    });
+
+    expect(await screen.findByText('Loaded roster.csv')).toBeInTheDocument();
+    expect(screen.getByText('1 new')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import 1 roster row' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 roster row' }));
+
+    expect(screen.getByText('Taylor Lee')).toBeInTheDocument();
+  });
+
+  it('downloads a blank roster template csv', () => {
+    const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template');
+    const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, 'createElement');
+    const clickSpy = vi.fn();
+
+    createElementSpy.mockImplementation((tagName) => {
+      if (tagName === 'a') {
+        return {
+          click: clickSpy,
+          set href(value) {
+            this._href = value;
+          },
+          get href() {
+            return this._href;
+          },
+          set download(value) {
+            this._download = value;
+          },
+          get download() {
+            return this._download;
+          },
+        };
+      }
+
+        return originalCreateElement(tagName);
+    });
+
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Blank template' }));
+
+    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:template');
+
+    createElementSpy.mockRestore();
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+  });
+
+  it('downloads the blank template from inside the import modal', () => {
+    const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template-modal');
+    const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, 'createElement');
+    const clickSpy = vi.fn();
+
+    createElementSpy.mockImplementation((tagName) => {
+      if (tagName === 'a') {
+        return {
+          click: clickSpy,
+          set href(value) {
+            this._href = value;
+          },
+          get href() {
+            return this._href;
+          },
+          set download(value) {
+            this._download = value;
+          },
+          get download() {
+            return this._download;
+          },
+        };
+      }
+
+      return originalCreateElement(tagName);
+    });
+
+    renderView(Team);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download template' }));
+
+    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:template-modal');
+
+    createElementSpy.mockRestore();
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+  });
+});

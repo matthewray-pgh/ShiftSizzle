@@ -1,0 +1,142 @@
+@use '../../Assets/Styles.scss' as styles;
+
+.dashboard {
+  &__hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+  }
+
+  &__eyebrow {
+    margin: 0 0 8px;
+    color: styles.$secondary-color;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  &__summary {
+    max-width: 580px;
+    color: styles.$text-secondary;
+  }
+
+  &__status-pill {
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: capitalize;
+
+    &--published {
+      background: rgba(34, 197, 94, 0.12);
+      color: styles.$success;
+    }
+
+    &--draft {
+      background: rgba(245, 158, 11, 0.12);
+      color: styles.$warning;
+    }
+  }
+
+  &__card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  &__metric {
+    padding: 18px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fff 0%, #f7f7f7 100%);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+
+    span {
+      display: block;
+      margin-bottom: 12px;
+      color: styles.$text-secondary;
+      font-size: 0.9rem;
+    }
+
+    strong {
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    &--orange strong {
+      color: styles.$primary;
+    }
+
+    &--blue strong {
+      color: styles.$secondary-color;
+    }
+
+    &--red strong {
+      color: styles.$danger;
+    }
+
+    &--green strong {
+      color: styles.$success;
+    }
+  }
+
+  &__section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    h2 {
+      margin: 0;
+    }
+
+    span {
+      color: styles.$text-secondary;
+      font-size: 0.95rem;
+    }
+  }
+
+  &__two-column {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  &__panel {
+    padding: 18px;
+    border-radius: 18px;
+    background: styles.$background;
+
+    h3 {
+      margin-top: 0;
+    }
+
+    p {
+      margin-bottom: 8px;
+    }
+
+    small {
+      color: styles.$text-secondary;
+    }
+
+    &--highlight {
+      background: linear-gradient(135deg, rgba(255, 90, 44, 0.12) 0%, rgba(246, 175, 156, 0.22) 100%);
+    }
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard {
+    &__hero {
+      flex-direction: column;
+    }
+  }
+}

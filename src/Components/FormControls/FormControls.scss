@@ -10,11 +10,19 @@
   color: #555;
 }
 
-.input-field input {
+.input-field input,
+.input-field select,
+.input-field textarea {
   width: calc(100% - 16px);
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
+  font: inherit;
+}
+
+.input-field textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 
 .button {

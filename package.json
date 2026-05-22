@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && mkdir -p docs && cp -R dist/* docs/"
+    "build": "vite build && mkdir -p docs && cp -R dist/* docs/",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.1.0",
-    
     "nvm": "^0.0.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -21,7 +21,11 @@
     "@babel/preset-env": "^7.23.0",
     "@babel/preset-react": "^7.23.0",
     "@babel/register": "^7.23.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.4"
+    "jsdom": "^29.1.1",
+    "vite": "^7.2.4",
+    "vitest": "^4.1.7"
   }
 }

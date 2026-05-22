@@ -1,17 +1,25 @@
-import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+
+import { useAppState } from "../state/AppState";
 
 import "./Layout.scss";
 
 export const Layout = ({ children }) => {
+  const location = useLocation();
+  const {
+    state: { settings },
+  } = useAppState();
 
-  const [currentPage, setCurrentPage] = useState();
+  const pageTitles = {
+    "/": "Home",
+    "/scheduler": "Schedules",
+    "/shifts": "Shifts",
+    "/team": "Team",
+    "/messages": "Messages",
+    "/settings": "Settings",
+  };
 
-  useEffect(() => {
-    const path = window.location.pathname;
-    if (path === "/") setCurrentPage("Home");
-    else setCurrentPage(path.slice(1).charAt(0).toUpperCase() + path.slice(2));
-  }, [window.location.pathname]);
+  const currentPage = pageTitles[location.pathname] ?? "Home";
 
   return (
     <div className="layout">
@@ -26,8 +34,8 @@ export const Layout = ({ children }) => {
           </div>
           <div className="layout__header--main--user">
             <i className="fas fa-user-circle" aria-hidden="true"></i>
+            <span>{settings.currentUserName}</span>
           </div>
-         
         </div>
       </header>
 
@@ -62,6 +70,10 @@ const Navigation = ({ currentPage, testId }) => {
       <NavLink className={getLinkClass("Schedules")} to="/scheduler">
         <i className="fas fa-calendar-alt" aria-hidden="true"></i>
         <span>Schedules</span>
+      </NavLink>
+      <NavLink className={getLinkClass("Shifts")} to="/shifts">
+        <i className="fas fa-layer-group" aria-hidden="true"></i>
+        <span>Shifts</span>
       </NavLink>
       <NavLink className={getLinkClass("Home")} to="/">
         <i className="fas fa-home" aria-hidden="true"></i>
