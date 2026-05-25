@@ -15,6 +15,8 @@ export const BASE_TEAM_ROLES = Object.freeze({
 
 const DEFAULT_TEAM_ROLE = BASE_TEAM_ROLES.MANAGER;
 const DEFAULT_SHIFTS_PER_WEEK = 5;
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const YEAR_FORMATTER = new Intl.DateTimeFormat("en-US", { year: "numeric" });
 const DEFAULT_OPERATING_HOURS = Object.fromEntries(
   DAYS.map((day) => [
     day,
@@ -25,16 +27,6 @@ const DEFAULT_OPERATING_HOURS = Object.fromEntries(
     },
   ])
 );
-
-const baseRequirements = {
-  Sunday: { Open: 1, Mid: 1, Close: 1 },
-  Monday: { Open: 1, Mid: 0, Close: 1 },
-  Tuesday: { Open: 1, Mid: 0, Close: 1 },
-  Wednesday: { Open: 1, Mid: 1, Close: 1 },
-  Thursday: { Open: 1, Mid: 1, Close: 1 },
-  Friday: { Open: 1, Mid: 2, Close: 1 },
-  Saturday: { Open: 1, Mid: 1, Close: 1 },
-};
 
 const getUniqueValues = (values = []) => {
   const normalizedValues = values
@@ -59,13 +51,76 @@ export const getTeamRoles = (settings = {}, employees = []) => getUniqueValues([
 const createAvailability = (allowedShifts = BASE_SHIFT_TYPES) =>
   Object.fromEntries(DAYS.map((day) => [day, [...allowedShifts]]));
 
-const createDefaultRequirements = (shiftTypes = BASE_SHIFT_TYPES) =>
+const createEmptyRequirements = (shiftTypes = BASE_SHIFT_TYPES) =>
   Object.fromEntries(
     DAYS.map((day) => [
       day,
-      Object.fromEntries(shiftTypes.map((shift) => [shift, baseRequirements[day]?.[shift] ?? 0])),
+      Object.fromEntries(shiftTypes.map((shift) => [shift, 0])),
     ])
   );
+
+const getDayIndex = (day) => DAYS.indexOf(day);
+
+const getWeekEndDay = (weekStartsOn) => {
+  const startIndex = getDayIndex(weekStartsOn);
+
+  if (startIndex === -1) {
+    return "";
+  }
+
+  return DAYS[(startIndex + 6) % DAYS.length];
+};
+
+const getDateFromISO = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatISODate = (date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const buildWeekRange = (startDateValue, weekStartsOn) => {
+  const startDate = getDateFromISO(startDateValue);
+
+  if (!startDate || !weekStartsOn) {
+    return { startDate: "", endDate: "", weekLabel: "" };
+  }
+
+  const expectedStartIndex = getDayIndex(weekStartsOn);
+
+  if (expectedStartIndex === -1 || DAYS[startDate.getDay()] !== weekStartsOn) {
+    return { startDate: startDateValue, endDate: "", weekLabel: "" };
+  }
+
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 6);
+
+  return {
+    startDate: startDateValue,
+    endDate: formatISODate(endDate),
+    weekLabel: `${DATE_FORMATTER.format(startDate)} - ${DATE_FORMATTER.format(endDate)}, ${YEAR_FORMATTER.format(endDate)}`,
+  };
+};
+
+const inferWeekStartsOn = (settings = {}, schedule = {}) => {
+  if (DAYS.includes(settings.weekStartsOn)) {
+    return settings.weekStartsOn;
+  }
+
+  const startDate = getDateFromISO(schedule.startDate);
+
+  return startDate ? DAYS[startDate.getDay()] : "";
+};
 
 const normalizeAvailability = (availability = {}, shiftTypes = BASE_SHIFT_TYPES) =>
   Object.fromEntries(
@@ -97,6 +152,25 @@ const normalizeRequirements = (
     ])
   );
 
+const normalizeRoleRequirements = (
+  roleRequirements = {},
+  teamRoles = [DEFAULT_TEAM_ROLE],
+  selectedRole = DEFAULT_TEAM_ROLE,
+  activeRequirements = {},
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) =>
+  Object.fromEntries(
+    teamRoles.map((role) => [
+      role,
+      normalizeRequirements(
+        roleRequirements?.[role] ?? (role === selectedRole && selectedRole ? activeRequirements : createEmptyRequirements(shiftTypes)),
+        shiftTypes,
+        operatingHours
+      ),
+    ])
+  );
+
 const normalizeAssignments = (
   assignments = {},
   employees = [],
@@ -116,6 +190,65 @@ const normalizeAssignments = (
       ),
     ])
   );
+
+const createEmptyAssignments = (
+  employees = [],
+  operatingHours = normalizeOperatingHours()
+) =>
+  Object.fromEntries(
+    employees.map((employee) => [
+      employee.id,
+      Object.fromEntries(
+        DAYS.map((day) => [day, operatingHours[day]?.isOpen ? [] : []])
+      ),
+    ])
+  );
+
+const replaceAssignmentsForRole = (
+  assignments = {},
+  employees = [],
+  role = DEFAULT_TEAM_ROLE,
+  nextAssignments = {},
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) =>
+  Object.fromEntries(
+    employees.map((employee) => {
+      const assignmentSource = employee.role === role
+        ? nextAssignments?.[employee.id]
+        : assignments?.[employee.id];
+
+      return [
+        employee.id,
+        Object.fromEntries(
+          DAYS.map((day) => [
+            day,
+            operatingHours[day]?.isOpen
+              ? getUniqueValues(assignmentSource?.[day] ?? []).filter((shift) => shiftTypes.includes(shift))
+              : [],
+          ])
+        ),
+      ];
+    })
+  );
+
+const clearAssignmentsForRole = (
+  assignments = {},
+  employees = [],
+  role = DEFAULT_TEAM_ROLE,
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours()
+) => replaceAssignmentsForRole(
+  assignments,
+  employees,
+  role,
+  createEmptyAssignments(
+    employees.filter((employee) => employee.role === role),
+    operatingHours
+  ),
+  shiftTypes,
+  operatingHours
+);
 
 const normalizeShiftsPerWeek = (employee = {}) => {
   const configuredShifts = Number(employee.shiftsPerWeek);
@@ -295,24 +428,57 @@ const buildAssignments = (
   return assignments;
 };
 
+const countAssignedShiftsForEmployee = (assignments = {}, employeeId, operatingHours = normalizeOperatingHours()) =>
+  DAYS.reduce((total, day) => {
+    if (!operatingHours[day]?.isOpen) {
+      return total;
+    }
+
+    return total + ((assignments[employeeId]?.[day] ?? []).length);
+  }, 0);
+
+const hasScheduleDraftProgress = (schedule = {}) => {
+  const hasRequirements = Object.values(schedule.requirements ?? {}).some((dayRequirements) =>
+    Object.values(dayRequirements ?? {}).some((requiredCount) => Number(requiredCount) > 0)
+  );
+  const hasAssignments = Object.values(schedule.assignments ?? {}).some((employeeAssignments) =>
+    Object.values(employeeAssignments ?? {}).some((assignedShifts) => (assignedShifts ?? []).length > 0)
+  );
+
+  return Boolean(
+    schedule.weekLabel
+    || schedule.startDate
+    || schedule.endDate
+    || schedule.selectedRole
+    || schedule.coveragePlanReviewed
+    || schedule.notes
+    || hasRequirements
+    || hasAssignments
+  );
+};
+
 const createDefaultSchedule = (
   employees = defaultEmployees,
   shiftTypes = BASE_SHIFT_TYPES,
-  selectedRole = DEFAULT_TEAM_ROLE,
+  selectedRole = "",
   operatingHours = normalizeOperatingHours()
 ) => {
-  const requirements = normalizeRequirements(createDefaultRequirements(shiftTypes), shiftTypes, operatingHours);
+  const requirements = normalizeRequirements(createEmptyRequirements(shiftTypes), shiftTypes, operatingHours);
 
   return {
-    weekLabel: "May 24 - May 30, 2026",
-    startDate: "2026-05-24",
-    endDate: "2026-05-30",
+    weekLabel: "",
+    startDate: "",
+    endDate: "",
     status: "draft",
     selectedRole,
+    coveragePlanReviewed: false,
+    roleRequirements: selectedRole ? { [selectedRole]: requirements } : {},
     requirements,
-    assignments: buildAssignments(employees, selectedRole, requirements, shiftTypes, operatingHours),
-    notes: "Review closing coverage before Friday publish.",
+    assignments: createEmptyAssignments(employees, operatingHours),
+    notes: "",
+    lastSavedAt: null,
     lastPublishedAt: null,
+    hasUnsavedChanges: false,
   };
 };
 
@@ -325,23 +491,14 @@ const createDefaultState = () => ({
     publishNotifications: true,
     shiftTypes: [...BASE_SHIFT_TYPES],
     additionalTeamRoles: [],
+    weekStartsOn: "",
     operatingHours: normalizeOperatingHours(),
   },
   employees: defaultEmployees,
-  schedule: createDefaultSchedule(defaultEmployees, BASE_SHIFT_TYPES, DEFAULT_TEAM_ROLE, normalizeOperatingHours()),
-  messages: [
-    {
-      id: 1,
-      title: "Welcome to ShiftSizzle",
-      body: "Your staffing dashboard is ready. Build this week's manager schedule and publish when coverage is complete.",
-      createdAt: "2026-05-21T09:00:00.000Z",
-      status: "unread",
-      audience: "manager",
-    },
-  ],
+  schedule: createDefaultSchedule(defaultEmployees, BASE_SHIFT_TYPES, "", normalizeOperatingHours()),
 });
 
-const normalizeSettings = (settings = {}) => {
+const normalizeSettings = (settings = {}, schedule = {}) => {
   const normalizedSettings = {
     ...createDefaultState().settings,
     ...settings,
@@ -354,6 +511,7 @@ const normalizeSettings = (settings = {}) => {
     additionalTeamRoles: getUniqueValues(normalizedSettings.additionalTeamRoles).filter(
       (role) => !Object.values(BASE_TEAM_ROLES).includes(role)
     ),
+    weekStartsOn: inferWeekStartsOn(normalizedSettings, schedule),
     operatingHours: normalizeOperatingHours(normalizedSettings.operatingHours),
   };
 };
@@ -362,16 +520,35 @@ const normalizeSchedule = (schedule = {}, employees = [], settings = {}) => {
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
   const operatingHours = normalizeOperatingHours(settings.operatingHours);
-  const selectedRole = teamRoles.includes(schedule.selectedRole) ? schedule.selectedRole : teamRoles[0];
-  const requirements = normalizeRequirements(schedule.requirements, shiftTypes, operatingHours);
-  const assignments = Object.keys(schedule.assignments ?? {}).length
-    ? normalizeAssignments(schedule.assignments, employees, shiftTypes, operatingHours)
-    : buildAssignments(employees, selectedRole, requirements, shiftTypes, operatingHours);
+  const selectedRole = teamRoles.includes(schedule.selectedRole) ? schedule.selectedRole : "";
+  const roleRequirements = normalizeRoleRequirements(
+    schedule.roleRequirements,
+    teamRoles,
+    selectedRole,
+    schedule.requirements,
+    shiftTypes,
+    operatingHours
+  );
+  const requirements = selectedRole ? roleRequirements[selectedRole] : normalizeRequirements(createEmptyRequirements(shiftTypes), shiftTypes, operatingHours);
+  const assignments = normalizeAssignments(schedule.assignments, employees, shiftTypes, operatingHours);
+  const lastSavedAt = typeof schedule.lastSavedAt === "string" && schedule.lastSavedAt
+    ? schedule.lastSavedAt
+    : schedule.status === "published" || Boolean(schedule.lastPublishedAt)
+      ? schedule.lastPublishedAt
+      : null;
 
   return {
     ...createDefaultSchedule(employees, shiftTypes, selectedRole, operatingHours),
     ...schedule,
     selectedRole,
+    coveragePlanReviewed: typeof schedule.coveragePlanReviewed === "boolean"
+      ? schedule.coveragePlanReviewed
+      : schedule.status === "published" || Boolean(schedule.lastPublishedAt),
+    lastSavedAt,
+    hasUnsavedChanges: typeof schedule.hasUnsavedChanges === "boolean"
+      ? schedule.hasUnsavedChanges
+      : Boolean(hasScheduleDraftProgress(schedule) && !lastSavedAt),
+    roleRequirements,
     requirements,
     assignments,
   };
@@ -392,7 +569,7 @@ const hydrateState = () => {
 
   try {
     const parsedState = JSON.parse(storedState);
-    const settings = normalizeSettings(parsedState.settings);
+    const settings = normalizeSettings(parsedState.settings, parsedState.schedule);
     const shiftTypes = getShiftTypes(settings);
     const employees = (parsedState.employees ?? defaultEmployees).map((employee) => normalizeEmployee(employee, shiftTypes));
     const schedule = normalizeSchedule(parsedState.schedule, employees, settings);
@@ -480,8 +657,17 @@ const appStateReducer = (state, action) => {
       const operatingHours = normalizeOperatingHours(settings.operatingHours);
       const employees = state.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
       const teamRoles = getTeamRoles(settings, employees);
-      const selectedRole = teamRoles.includes(state.schedule.selectedRole) ? state.schedule.selectedRole : teamRoles[0];
-      const requirements = normalizeRequirements(state.schedule.requirements, shiftTypes, operatingHours);
+      const selectedRole = teamRoles.includes(state.schedule.selectedRole) ? state.schedule.selectedRole : "";
+      const weekRange = buildWeekRange(state.schedule.startDate, settings.weekStartsOn);
+      const roleRequirements = normalizeRoleRequirements(
+        state.schedule.roleRequirements,
+        teamRoles,
+        selectedRole,
+        state.schedule.requirements,
+        shiftTypes,
+        operatingHours
+      );
+      const requirements = roleRequirements[selectedRole];
       const assignments = normalizeAssignments(state.schedule.assignments, employees, shiftTypes, operatingHours);
 
       return {
@@ -490,46 +676,115 @@ const appStateReducer = (state, action) => {
         employees,
         schedule: {
           ...state.schedule,
+          ...weekRange,
           selectedRole,
+          coveragePlanReviewed: false,
+          roleRequirements,
           requirements,
           assignments,
+          hasUnsavedChanges: true,
+          status: "draft",
+        },
+      };
+    }
+    case "SET_SCHEDULE_START_DATE": {
+      const weekRange = buildWeekRange(action.payload, state.settings.weekStartsOn);
+
+      return {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          ...weekRange,
+          coveragePlanReviewed: false,
+          hasUnsavedChanges: true,
           status: "draft",
         },
       };
     }
     case "UPDATE_REQUIREMENTS": {
       const shiftTypes = getShiftTypes(state.settings);
+      const requirements = normalizeRequirements(action.payload, shiftTypes, state.settings.operatingHours);
 
       return {
         ...state,
         schedule: {
           ...state.schedule,
-          requirements: normalizeRequirements(action.payload, shiftTypes, state.settings.operatingHours),
+          coveragePlanReviewed: false,
+          roleRequirements: {
+            ...(state.schedule.roleRequirements ?? {}),
+            [state.schedule.selectedRole]: requirements,
+          },
+          requirements,
+          hasUnsavedChanges: true,
+          status: "draft",
+        },
+      };
+    }
+    case "CONFIRM_COVERAGE_PLAN": {
+      return {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          coveragePlanReviewed: true,
+          hasUnsavedChanges: true,
           status: "draft",
         },
       };
     }
     case "SET_SELECTED_ROLE": {
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+      const nextSelectedRole = action.payload;
+      const roleRequirements = normalizeRoleRequirements(
+        state.schedule.roleRequirements,
+        getTeamRoles(state.settings, state.employees),
+        nextSelectedRole,
+        state.schedule.requirements,
+        shiftTypes,
+        operatingHours
+      );
+      const requirements = nextSelectedRole
+        ? roleRequirements[nextSelectedRole]
+        : normalizeRequirements(createEmptyRequirements(shiftTypes), shiftTypes, operatingHours);
+
       return {
         ...state,
         schedule: {
           ...state.schedule,
-          selectedRole: action.payload,
+          selectedRole: nextSelectedRole,
+          coveragePlanReviewed: false,
+          hasUnsavedChanges: true,
           status: "draft",
-          assignments: buildAssignments(
-            state.employees,
-            action.payload,
-            state.schedule.requirements,
-            getShiftTypes(state.settings),
-            state.settings.operatingHours
-          ),
+          roleRequirements,
+          requirements,
         },
       };
     }
     case "TOGGLE_ASSIGNMENT": {
       const { employeeId, day, shift } = action.payload;
+      const employee = state.employees.find((currentEmployee) => currentEmployee.id === employeeId);
+
+      if (!employee) {
+        return state;
+      }
+
       const currentDayAssignments = state.schedule.assignments[employeeId]?.[day] ?? [];
       const hasAssignment = currentDayAssignments.includes(shift);
+
+      if (!hasAssignment) {
+        const isAvailable = (employee.availability?.[day] ?? []).includes(shift);
+        const assignedShiftCount = countAssignedShiftsForEmployee(
+          state.schedule.assignments,
+          employeeId,
+          normalizeOperatingHours(state.settings.operatingHours),
+        );
+        const maxShiftsPerWeek = normalizeShiftsPerWeek(employee);
+
+        if (!isAvailable || assignedShiftCount >= maxShiftsPerWeek) {
+          return state;
+        }
+      }
+
       const nextDayAssignments = hasAssignment
         ? currentDayAssignments.filter((currentShift) => currentShift !== shift)
         : [...currentDayAssignments, shift];
@@ -538,6 +793,7 @@ const appStateReducer = (state, action) => {
         ...state,
         schedule: {
           ...state.schedule,
+          hasUnsavedChanges: true,
           status: "draft",
           assignments: {
             ...state.schedule.assignments,
@@ -550,17 +806,54 @@ const appStateReducer = (state, action) => {
       };
     }
     case "AUTO_BUILD_SCHEDULE": {
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+
+      if (!state.schedule.startDate || !state.schedule.endDate || !state.schedule.selectedRole || !state.schedule.coveragePlanReviewed) {
+        return state;
+      }
+
       return {
         ...state,
         schedule: {
           ...state.schedule,
+          hasUnsavedChanges: true,
           status: "draft",
-          assignments: buildAssignments(
+          assignments: replaceAssignmentsForRole(
+            state.schedule.assignments,
             state.employees,
             state.schedule.selectedRole,
-            state.schedule.requirements,
-            getShiftTypes(state.settings),
-            state.settings.operatingHours
+            buildAssignments(
+              state.employees,
+              state.schedule.selectedRole,
+              state.schedule.requirements,
+              shiftTypes,
+              operatingHours
+            ),
+            shiftTypes,
+            operatingHours
+          ),
+        },
+      };
+    }
+    case "RESET_SCHEDULE_DRAFT": {
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+
+      return {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          coveragePlanReviewed: false,
+          hasUnsavedChanges: true,
+          status: "draft",
+          notes: "",
+          assignments: clearAssignmentsForRole(
+            state.schedule.assignments,
+            state.employees,
+            state.schedule.selectedRole,
+            shiftTypes,
+            operatingHours
           ),
         },
       };
@@ -570,43 +863,41 @@ const appStateReducer = (state, action) => {
         ...state,
         schedule: {
           ...state.schedule,
+          hasUnsavedChanges: true,
+          status: "draft",
           notes: action.payload,
         },
       };
     }
-    case "PUBLISH_SCHEDULE": {
-      const publishTimestamp = new Date().toISOString();
-      const assignedEmployees = state.employees.filter((employee) => {
-        const employeeAssignments = state.schedule.assignments[employee.id] ?? {};
-        return DAYS.some((day) => (employeeAssignments[day] ?? []).length > 0);
-      });
+    case "SAVE_SCHEDULE_DRAFT": {
+      if (!state.schedule.hasUnsavedChanges) {
+        return state;
+      }
 
       return {
         ...state,
         schedule: {
           ...state.schedule,
-          status: "published",
-          lastPublishedAt: publishTimestamp,
+          lastSavedAt: new Date().toISOString(),
+          hasUnsavedChanges: false,
+          status: "draft",
         },
-        messages: [
-          {
-            id: Date.now(),
-            title: `Schedule published for ${state.schedule.weekLabel}`,
-            body: `Published ${assignedEmployees.length} employee schedules for ${state.schedule.selectedRole} coverage.`,
-            createdAt: publishTimestamp,
-            status: "unread",
-            audience: "team",
-          },
-          ...state.messages,
-        ],
       };
     }
-    case "MARK_MESSAGE_READ": {
+    case "PUBLISH_SCHEDULE": {
+      if (state.schedule.hasUnsavedChanges || !state.schedule.lastSavedAt) {
+        return state;
+      }
+
       return {
         ...state,
-        messages: state.messages.map((message) =>
-          message.id === action.payload ? { ...message, status: "read" } : message
-        ),
+        schedule: {
+          ...state.schedule,
+          hasUnsavedChanges: false,
+          status: "published",
+          lastSavedAt: new Date().toISOString(),
+          lastPublishedAt: new Date().toISOString(),
+        },
       };
     }
     default:

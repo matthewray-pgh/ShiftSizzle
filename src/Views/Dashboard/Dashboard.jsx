@@ -61,7 +61,7 @@ const buildOperatingHoursSummary = (operatingHours = {}) => {
 
 export const Dashboard = () => {
   const {
-    state: { employees, messages, schedule, settings },
+    state: { employees, schedule, settings },
   } = useAppState();
   const shiftTypes = getShiftTypes(settings);
   const operatingHoursSummary = useMemo(
@@ -105,13 +105,10 @@ export const Dashboard = () => {
     [activeEmployees, schedule.assignments, schedule.requirements, schedule.selectedRole, shiftTypes]
   );
 
-  const unreadMessages = messages.filter((message) => message.status === 'unread').length;
-
   const dashboardCards = [
     { label: 'Active employees', value: activeEmployees.length, accent: 'orange' },
     { label: 'Assigned shifts', value: assignedShiftCount, accent: 'blue' },
     { label: 'Open shifts', value: openShiftCount, accent: openShiftCount ? 'red' : 'green' },
-    { label: 'Unread updates', value: unreadMessages, accent: 'slate' },
   ];
 
   return (
@@ -161,9 +158,17 @@ export const Dashboard = () => {
             </ul>
           </div>
           <div className="dashboard__panel">
-            <h3>Latest Update</h3>
-            <p>{messages[0]?.title ?? 'No updates yet.'}</p>
-            <small>{messages[0]?.body ?? 'Publishing a schedule creates a team notification.'}</small>
+            <h3>Publish Status</h3>
+            <p>
+              {schedule.lastPublishedAt
+                ? `Last published ${new Date(schedule.lastPublishedAt).toLocaleString()}`
+                : 'No published schedule yet.'}
+            </p>
+            <small>
+              {schedule.status === 'published'
+                ? `The active week is live for ${schedule.selectedRole} coverage.`
+                : 'Finish the draft and publish when coverage blockers are resolved.'}
+            </small>
           </div>
         </div>
       </ContentPanel>
