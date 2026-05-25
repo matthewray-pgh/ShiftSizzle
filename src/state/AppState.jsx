@@ -437,6 +437,100 @@ const countAssignedShiftsForEmployee = (assignments = {}, employeeId, operatingH
     return total + ((assignments[employeeId]?.[day] ?? []).length);
   }, 0);
 
+const calculateScheduleReview = ({
+  assignments = {},
+  requirements = {},
+  employees = [],
+  selectedRole = "",
+  shiftTypes = BASE_SHIFT_TYPES,
+  operatingHours = normalizeOperatingHours(),
+}) => {
+  const roleEmployees = employees.filter(
+    (employee) => employee.status !== "archived" && employee.role === selectedRole
+  );
+  const openDays = DAYS.filter((day) => operatingHours[day]?.isOpen);
+
+  const coverageGaps = openDays.flatMap((day) =>
+    shiftTypes.flatMap((shift) => {
+      const required = requirements?.[day]?.[shift] ?? 0;
+      const assigned = roleEmployees.reduce(
+        (count, employee) => count + ((assignments[employee.id]?.[day] ?? []).includes(shift) ? 1 : 0),
+        0,
+      );
+
+      return assigned >= required
+        ? []
+        : [{ day, shift, open: required - assigned, required, assigned }];
+    })
+  );
+
+  const shiftCapAlerts = roleEmployees
+    .map((employee) => {
+      const assigned = countAssignedShiftsForEmployee(assignments, employee.id, operatingHours);
+      const maxShifts = normalizeShiftsPerWeek(employee);
+
+      return assigned > maxShifts
+        ? {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          assigned,
+          maxShifts,
+        }
+        : null;
+    })
+    .filter(Boolean);
+
+  const requiredSlots = openDays.reduce(
+    (total, day) => total + shiftTypes.reduce((dayTotal, shift) => dayTotal + (requirements?.[day]?.[shift] ?? 0), 0),
+    0,
+  );
+  const openSlots = coverageGaps.reduce((total, gap) => total + gap.open, 0);
+  const assignedSlots = requiredSlots - openSlots;
+
+  return {
+    coverageGaps,
+    shiftCapAlerts,
+    metrics: {
+      requiredSlots,
+      assignedSlots,
+      openSlots,
+      roleEmployeeCount: roleEmployees.length,
+      unresolvedIssueCount: coverageGaps.length + shiftCapAlerts.length,
+    },
+  };
+};
+
+const buildPublishedScheduleSnapshot = ({
+  schedule = {},
+  employees = [],
+  settings = {},
+  publishedAt = new Date().toISOString(),
+}) => {
+  const shiftTypes = getShiftTypes(settings);
+  const operatingHours = normalizeOperatingHours(settings.operatingHours);
+  const review = calculateScheduleReview({
+    assignments: schedule.assignments,
+    requirements: schedule.requirements,
+    employees,
+    selectedRole: schedule.selectedRole,
+    shiftTypes,
+    operatingHours,
+  });
+
+  return {
+    id: `${publishedAt}-${schedule.startDate || "no-week"}-${schedule.selectedRole || "no-role"}`,
+    weekLabel: schedule.weekLabel,
+    startDate: schedule.startDate,
+    endDate: schedule.endDate,
+    selectedRole: schedule.selectedRole,
+    notes: schedule.notes,
+    requirements: schedule.requirements,
+    assignments: schedule.assignments,
+    publishedAt,
+    ...review,
+  };
+};
+
 const hasScheduleDraftProgress = (schedule = {}) => {
   const hasRequirements = Object.values(schedule.requirements ?? {}).some((dayRequirements) =>
     Object.values(dayRequirements ?? {}).some((requiredCount) => Number(requiredCount) > 0)
@@ -476,6 +570,7 @@ const createDefaultSchedule = (
     requirements,
     assignments: createEmptyAssignments(employees, operatingHours),
     notes: "",
+    publishHistory: [],
     lastSavedAt: null,
     lastPublishedAt: null,
     hasUnsavedChanges: false,
@@ -536,6 +631,31 @@ const normalizeSchedule = (schedule = {}, employees = [], settings = {}) => {
     : schedule.status === "published" || Boolean(schedule.lastPublishedAt)
       ? schedule.lastPublishedAt
       : null;
+  const publishHistory = Array.isArray(schedule.publishHistory)
+    ? schedule.publishHistory
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => ({
+        ...entry,
+        requirements: normalizeRequirements(entry.requirements, shiftTypes, operatingHours),
+        assignments: normalizeAssignments(entry.assignments, employees, shiftTypes, operatingHours),
+      }))
+    : [];
+
+  const fallbackPublishedSnapshot =
+    (schedule.status === "published" || Boolean(schedule.lastPublishedAt)) && !publishHistory.length
+      ? [
+        buildPublishedScheduleSnapshot({
+          schedule: {
+            ...schedule,
+            requirements,
+            assignments,
+          },
+          employees,
+          settings,
+          publishedAt: schedule.lastPublishedAt || lastSavedAt || new Date().toISOString(),
+        }),
+      ]
+      : [];
 
   return {
     ...createDefaultSchedule(employees, shiftTypes, selectedRole, operatingHours),
@@ -548,6 +668,7 @@ const normalizeSchedule = (schedule = {}, employees = [], settings = {}) => {
     hasUnsavedChanges: typeof schedule.hasUnsavedChanges === "boolean"
       ? schedule.hasUnsavedChanges
       : Boolean(hasScheduleDraftProgress(schedule) && !lastSavedAt),
+    publishHistory: publishHistory.length ? publishHistory : fallbackPublishedSnapshot,
     roleRequirements,
     requirements,
     assignments,
@@ -702,6 +823,10 @@ const appStateReducer = (state, action) => {
       };
     }
     case "UPDATE_REQUIREMENTS": {
+      if (!state.schedule.selectedRole) {
+        return state;
+      }
+
       const shiftTypes = getShiftTypes(state.settings);
       const requirements = normalizeRequirements(action.payload, shiftTypes, state.settings.operatingHours);
 
@@ -889,14 +1014,36 @@ const appStateReducer = (state, action) => {
         return state;
       }
 
+      const publishedAt = new Date().toISOString();
+      const publishedSnapshot = buildPublishedScheduleSnapshot({
+        schedule: state.schedule,
+        employees: state.employees,
+        settings: state.settings,
+        publishedAt,
+      });
+
       return {
         ...state,
         schedule: {
           ...state.schedule,
           hasUnsavedChanges: false,
           status: "published",
-          lastSavedAt: new Date().toISOString(),
-          lastPublishedAt: new Date().toISOString(),
+          lastSavedAt: publishedAt,
+          lastPublishedAt: publishedAt,
+          publishHistory: [publishedSnapshot, ...(state.schedule.publishHistory ?? [])],
+        },
+      };
+    }
+    case "START_NEW_SCHEDULE_CONTEXT": {
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+      const freshSchedule = createDefaultSchedule(state.employees, shiftTypes, "", operatingHours);
+
+      return {
+        ...state,
+        schedule: {
+          ...freshSchedule,
+          publishHistory: state.schedule.publishHistory ?? [],
         },
       };
     }

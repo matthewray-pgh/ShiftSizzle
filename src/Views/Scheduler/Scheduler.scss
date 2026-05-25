@@ -49,6 +49,19 @@
     color: styles.$text-secondary;
   }
 
+  &__editing-context {
+    margin: 0.45rem 0 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.34rem 0.62rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.06);
+    color: styles.$text-secondary;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
   &__step-eyebrow {
     display: inline-flex;
     margin-bottom: 6px;
@@ -337,6 +350,12 @@
     white-space: nowrap;
     flex-shrink: 0;
     min-height: 38px;
+
+    &:disabled {
+      cursor: not-allowed;
+      transform: none;
+      opacity: 1;
+    }
   }
 
   &__coverage-plan-footer {
@@ -377,6 +396,12 @@
     gap: 8px;
     margin: 12px 0 0;
     padding: 0;
+  }
+
+  &__scope-actions {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-start;
   }
 
   &__scope-summary-item {

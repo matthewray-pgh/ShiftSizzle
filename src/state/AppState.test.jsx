@@ -417,6 +417,38 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Schedule status: published')).toBeInTheDocument();
   });
 
+  it('does not update coverage requirements when no role is selected', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        shiftTypes: ['Open'],
+      },
+      schedule: {
+        selectedRole: '',
+        requirements: {
+          Sunday: { Open: 0 },
+          Monday: { Open: 0 },
+          Tuesday: { Open: 0 },
+          Wednesday: { Open: 0 },
+          Thursday: { Open: 0 },
+          Friday: { Open: 0 },
+          Saturday: { Open: 0 },
+        },
+      },
+    }));
+
+    render(
+      <AppStateProvider>
+        <TestHarness />
+      </AppStateProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set Monday Open to 2' }));
+
+    expect(screen.getByText('Current role:')).toHaveTextContent('Current role:');
+    expect(screen.getByText('Monday Open requirement: 0')).toBeInTheDocument();
+    expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
+  });
+
   it('does not auto-build a draft when switching roles', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: {

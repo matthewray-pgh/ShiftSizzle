@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider } from '../../state/AppState';
 import { renderView } from '../../test/renderView';
@@ -10,6 +10,7 @@ const STORAGE_KEY = 'shiftsizzle.app-state.v1';
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  vi.restoreAllMocks();
 });
 
 describe('Scheduler view', () => {
@@ -24,6 +25,8 @@ describe('Scheduler view', () => {
     expect(screen.getByLabelText('Schedule workflow')).toBeInTheDocument();
     expect(screen.getAllByText('Choose week.').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('You are editing: no active schedule context selected yet.');
+    expect(screen.getByRole('button', { name: 'Create new schedule context' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset to blank draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeInTheDocument();
@@ -41,6 +44,66 @@ describe('Scheduler view', () => {
     expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
     expect(screen.getByText('Choose the week and role in Phase 1 before editing the schedule.')).toBeInTheDocument();
+    expect(screen.getAllByRole('spinbutton')[0]).toBeDisabled();
+  });
+
+  it('guards role switching when unpublished work is in progress', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        weekStartsOn: 'Sunday',
+      },
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        hasUnsavedChanges: true,
+        status: 'draft',
+      },
+    }));
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(
+      <AppStateProvider>
+        <Scheduler />
+      </AppStateProvider>
+    );
+
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Server' } });
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText('Role')).toHaveValue('Manager');
+  });
+
+  it('can intentionally start a new schedule context from planning scope', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        weekStartsOn: 'Sunday',
+      },
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        hasUnsavedChanges: true,
+        status: 'draft',
+      },
+    }));
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(
+      <AppStateProvider>
+        <Scheduler />
+      </AppStateProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create new schedule context' }));
+
+    expect(screen.getByLabelText('Week start date')).toHaveValue('');
+    expect(screen.getByLabelText('Role')).toHaveValue('');
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('You are editing: no active schedule context selected yet.');
   });
 
   it('hides closed days from scheduling controls', () => {
@@ -327,6 +390,31 @@ describe('Scheduler view', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Weekly view' }));
     expect(screen.getByLabelText('Weekly editor weekly canvas')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0);
+  });
+
+  it('hydrates week and role from deep-link query params', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        weekStartsOn: 'Monday',
+      },
+      schedule: {
+        selectedRole: '',
+        startDate: '',
+        endDate: '',
+        weekLabel: '',
+      },
+    }));
+    window.history.replaceState({}, '', '/scheduler?weekStart=2026-05-25&role=Manager');
+
+    render(
+      <AppStateProvider>
+        <Scheduler />
+      </AppStateProvider>
+    );
+
+    expect(screen.getByLabelText('Week start date')).toHaveValue('2026-05-25');
+    expect(screen.getByLabelText('Role')).toHaveValue('Manager');
+    expect(window.location.search).toBe('');
   });
 
   it('remembers the selected weekly editor view for the current session', () => {

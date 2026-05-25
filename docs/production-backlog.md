@@ -149,9 +149,9 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 
 ### 3. Published Schedule Consumption
 
-- [ ] Make the Shifts view reflect the published schedule state instead of placeholder content. [Owner: Frontend Eng] [Phase: MVP-Next]
-- [ ] Add week navigation and recent schedule history in the frontend. [Owner: Frontend Eng] [Phase: MVP-Next]
-- [ ] Clarify what a manager can review after publish: assignments, coverage, and unresolved issues. [Owner: Product + Frontend Eng] [Phase: MVP-Next]
+- [x] Make the Shifts view reflect the published schedule state instead of placeholder content. [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Add week navigation and recent schedule history in the frontend. [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Clarify what a manager can review after publish: assignments, coverage, and unresolved issues. [Owner: Product + Frontend Eng] [Phase: MVP-Next]
 
 ### 4. Settings That Drive Scheduling
 

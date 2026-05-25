@@ -42,6 +42,35 @@ export const Scheduler = () => {
   const configuredWeekStart = settings.weekStartsOn;
   const configuredWeekEnd = configuredWeekStart ? DAYS[(DAYS.indexOf(configuredWeekStart) + 6) % DAYS.length] : '';
 
+  useEffect(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const linkedWeekStart = queryParams.get('weekStart');
+    const linkedRole = queryParams.get('role');
+    const hasDeepLinkParams = Boolean(linkedWeekStart || linkedRole);
+
+    if (!hasDeepLinkParams) {
+      return;
+    }
+
+    if (linkedWeekStart && linkedWeekStart !== schedule.startDate) {
+      dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: linkedWeekStart });
+    }
+
+    if (linkedRole && teamRoles.includes(linkedRole) && linkedRole !== schedule.selectedRole) {
+      dispatch({ type: 'SET_SELECTED_ROLE', payload: linkedRole });
+    }
+
+    queryParams.delete('weekStart');
+    queryParams.delete('role');
+    const nextSearch = queryParams.toString();
+
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+    );
+  }, []);
+
   const handleRequirementChange = (day, shift, value) => {
     dispatch({
       type: 'UPDATE_REQUIREMENTS',
@@ -55,12 +84,54 @@ export const Scheduler = () => {
     });
   };
 
+  const confirmContextSwitch = () => {
+    const hasDraftSignals = Boolean(
+      hasWeekRange
+      || hasRoleSelected
+      || coveragePlanComplete
+      || totalRequiredSlots > 0
+      || scheduledTotals > 0
+      || schedule.notes?.trim()
+    );
+    const hasUnpublishedDraft = schedule.status !== 'published' && (Boolean(schedule.hasUnsavedChanges) || Boolean(schedule.lastSavedAt));
+
+    if (!hasUnpublishedDraft || !hasDraftSignals || typeof window === 'undefined') {
+      return true;
+    }
+
+    return window.confirm('You have unpublished schedule work in progress. Switching week or role will move you into a different schedule context. Continue?');
+  };
+
   const handleRoleChange = (e) => {
+    if (e.target.value === selectedRole) {
+      return;
+    }
+
+    if (!confirmContextSwitch()) {
+      return;
+    }
+
     dispatch({ type: 'SET_SELECTED_ROLE', payload: e.target.value });
   };
 
   const handleWeekStartChange = (e) => {
+    if (e.target.value === schedule.startDate) {
+      return;
+    }
+
+    if (!confirmContextSwitch()) {
+      return;
+    }
+
     dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: e.target.value });
+  };
+
+  const handleCreateNewScheduleContext = () => {
+    if (!confirmContextSwitch()) {
+      return;
+    }
+
+    dispatch({ type: 'START_NEW_SCHEDULE_CONTEXT' });
   };
 
   const scrollToWorkflowSection = (sectionId) => {
@@ -167,6 +238,14 @@ export const Scheduler = () => {
   const heroSubhead = hasWeekRange && hasRoleSelected
     ? `Build and publish the active ${schedule.weekLabel} staffing plan for ${selectedRole} coverage.`
     : 'Choose a week, select a role, and confirm demand before generating a schedule.';
+
+  const editingContextLine = hasWeekRange && hasRoleSelected
+    ? `You are editing: ${selectedRole} for ${schedule.weekLabel}.`
+    : hasWeekRange
+      ? `You are editing: unassigned role for ${schedule.weekLabel}.`
+      : hasRoleSelected
+        ? `You are editing: ${selectedRole} with no week selected.`
+        : 'You are editing: no active schedule context selected yet.';
 
   const weekSelectionNote = !hasWeekSettings
     ? 'Set the workspace week start in Settings before choosing a week to generate.'
@@ -477,6 +556,9 @@ export const Scheduler = () => {
             <p className="scheduler__hero-summary">
               Use this workspace to configure one schedule at a time, then publish it once each checkpoint is complete.
             </p>
+            <p className="scheduler__editing-context" aria-label="Active editing context">
+              {editingContextLine}
+            </p>
           </div>
           <div className="scheduler__status-panel" aria-label="Schedule status panel">
             <div className={`scheduler__status scheduler__status--${schedule.status}`}>
@@ -576,6 +658,15 @@ export const Scheduler = () => {
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
+            <div className="scheduler__scope-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={handleCreateNewScheduleContext}
+              >
+                Create new schedule context
+              </button>
+            </div>
             <dl className="scheduler__scope-summary" aria-label="Planning scope summary">
               <div className="scheduler__scope-summary-item">
                 <dt>Week status</dt>
@@ -635,6 +726,7 @@ export const Scheduler = () => {
                               value={schedule.requirements[day][shift]}
                               onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
                               className="scheduler__requirements-input"
+                              disabled={!hasRoleSelected}
                             />
                           </label>
                         ))}
@@ -671,6 +763,7 @@ export const Scheduler = () => {
                                 value={schedule.requirements[day][shift]}
                                 onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
                                 className="scheduler__requirements-input"
+                                disabled={!hasRoleSelected}
                               />
                             </td>
                           ))}

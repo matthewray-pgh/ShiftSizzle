@@ -29,7 +29,8 @@ a {
 .scheduler__page-eyebrow,
 .scheduler__step-eyebrow,
 .team__control-eyebrow,
-.settings__page-eyebrow {
+.settings__page-eyebrow,
+.shifts__page-eyebrow {
   background: var(--brand-primary-soft) !important;
   color: var(--brand-primary-strong) !important;
 }
@@ -46,7 +47,14 @@ a {
 .scheduler__day-editor-card,
 .scheduler__employee-card,
 .scheduler__canvas-row,
-.scheduler__canvas-day-cell {
+.scheduler__canvas-day-cell,
+.shifts__published-note,
+.shifts__review-card,
+.shifts__assignment-shell,
+.shifts__match-list,
+.shifts__match-group,
+.shifts__day-coverage-item,
+.shifts__empty-state {
   border-radius: 14px !important;
   border-color: rgba(203, 213, 225, 0.72) !important;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07) !important;
@@ -79,7 +87,11 @@ a {
 .scheduler__open-shifts,
 .scheduler__day-editor-card,
 .scheduler__employee-card,
-.scheduler__canvas-row {
+.scheduler__canvas-row,
+.shifts__published-note,
+.shifts__match-list,
+.shifts__day-coverage-item,
+.shifts__empty-state {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.94) 100%) !important;
 }
 
@@ -124,7 +136,12 @@ a {
 .scheduler__view-switcher,
 .scheduler__coverage-plan-meta span,
 .scheduler__step-eyebrow,
-.scheduler__coverage-state.is-pending {
+.scheduler__coverage-state.is-pending,
+.shifts__scheduler-link,
+.shifts__layout-toggle,
+.shifts__total-chip,
+.shifts__assignment-chip,
+.shifts__match-item.is-selected {
   background: var(--brand-primary-soft) !important;
   border-color: rgba(255, 107, 53, 0.22) !important;
   color: var(--brand-primary-strong) !important;
@@ -135,7 +152,9 @@ a {
 .team__edit-link:hover,
 .team__availability-action:hover,
 .team__modal-link-action:hover,
-.team__filter-chip.is-active:hover {
+.team__filter-chip.is-active:hover,
+.shifts__scheduler-link:hover,
+.shifts__match-item:hover {
   background: var(--brand-primary-soft-strong) !important;
   border-color: rgba(255, 107, 53, 0.34) !important;
 }
@@ -205,7 +224,7 @@ a {
   background-color: rgba(255, 255, 255, 0.96) !important;
 }
 
-.scheduler__coverage-plan-button,
+.scheduler__coverage-plan-button:not(:disabled),
 .scheduler__shift-toggle.is-active,
 .team__shift-chip.is-active {
   background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-strong) 100%) !important;
@@ -213,11 +232,18 @@ a {
   color: #fff !important;
 }
 
+.scheduler__coverage-plan-button:disabled {
+  background: #d8dee8 !important;
+  border-color: #d8dee8 !important;
+  color: rgba(15, 23, 42, 0.42) !important;
+  box-shadow: none !important;
+}
+
 .scheduler__workflow-step.is-complete .scheduler__workflow-icon,
 .scheduler__workflow-step.is-complete .scheduler__workflow-line {
-  background: rgba(255, 107, 53, 0.18) !important;
-  border-color: rgba(255, 107, 53, 0.3) !important;
-  color: var(--brand-primary-strong) !important;
+  background: rgba(styles.$success, 0.18) !important;
+  border-color: rgba(styles.$success, 0.34) !important;
+  color: styles.$success !important;
 }
 
 .scheduler__coverage-plan-meta span,
