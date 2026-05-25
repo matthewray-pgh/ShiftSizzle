@@ -17,7 +17,7 @@ Workplace scheduling application and workforce management tooling
 - Dashboard with staffing metrics and schedule status.
 - Team management with local persistence, filtering, editing, and archive flow.
 - Scheduler with coverage targets, manual shift editing, auto-build, publish state, and schedule visualizations.
-- Shifts, messages, and settings views backed by shared local application state.
+- Shifts and settings views backed by shared local application state.
 
 ## Planning
 

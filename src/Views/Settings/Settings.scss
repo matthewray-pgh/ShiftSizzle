@@ -147,35 +147,127 @@
     align-items: center;
   }
 
-  &__hours-grid {
+  &__field-label {
+    display: block;
+    margin: 0;
+    color: #14213d;
+    font-weight: 700;
+  }
+
+  &__select {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 12px;
+    background: #fff;
+    color: #14213d;
+    font: inherit;
+    box-sizing: border-box;
+  }
+
+  &__week-preview {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.9rem;
   }
 
-  &__hours-card {
-    padding: 1rem;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 16px;
+  &__week-preview-item {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.9rem 1rem;
+    border-radius: 14px;
     background: rgba(248, 250, 252, 0.82);
-  }
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 
-  &__hours-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.9rem;
+    span {
+      color: styles.$text-secondary;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
 
     strong {
       color: #14213d;
+      font-size: 1rem;
+      line-height: 1.2;
     }
   }
 
-  &__hours-fields {
+  &__hours-table {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  &__hours-head,
+  &__hours-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 0.95fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(190px, auto);
+    align-items: center;
     gap: 0.75rem;
+  }
+
+  &__hours-head {
+    padding: 0 0.2rem;
+
+    span {
+      color: styles.$text-secondary;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+  }
+
+  &__hours-row {
+    padding: 0.85rem 0.9rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.82);
+  }
+
+  &__hours-day {
+    strong {
+      color: #14213d;
+      font-size: 0.94rem;
+    }
+  }
+
+  &__hours-time {
+    min-width: 0;
+  }
+
+  &__hours-label {
+    display: block;
+    margin: 0 0 0.32rem;
+    color: styles.$text-secondary;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  &__hours-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 10px;
+    background: #fff;
+    color: #14213d;
+    font: inherit;
+    box-sizing: border-box;
+
+    &:disabled {
+      background: rgba(241, 245, 249, 0.9);
+      color: styles.$text-secondary;
+      cursor: not-allowed;
+    }
+  }
+
+  &__hours-toggle-cell {
+    display: flex;
+    justify-content: flex-end;
   }
 
   &__toggle {
@@ -231,6 +323,7 @@
   &__actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.9rem;
     flex-wrap: wrap;
   }
@@ -263,12 +356,27 @@
 
   &__saved {
     margin: 0;
+    margin-right: auto;
     color: styles.$success;
   }
 }
 
 @media (max-width: 720px) {
   .settings {
+    &__hours-head {
+      display: none;
+    }
+
+    &__hours-row {
+      grid-template-columns: 1fr;
+      gap: 0.7rem;
+      padding: 0.95rem;
+    }
+
+    &__hours-toggle-cell {
+      justify-content: flex-start;
+    }
+
     &__inline-form {
       grid-template-columns: 1fr;
     }
@@ -280,6 +388,43 @@
     &__actions {
       flex-direction: column;
       align-items: stretch;
+    }
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1024px) {
+  .settings {
+    &__hours-head,
+    &__hours-row {
+      grid-template-columns: minmax(88px, 0.8fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(150px, auto);
+      gap: 0.6rem;
+    }
+
+    &__hours-row {
+      padding: 0.72rem 0.78rem;
+    }
+
+    &__hours-head {
+      span {
+        font-size: 0.7rem;
+      }
+    }
+
+    &__hours-day {
+      strong {
+        font-size: 0.9rem;
+      }
+    }
+
+    &__hours-label {
+      margin-bottom: 0.24rem;
+      font-size: 0.7rem;
+    }
+
+    &__hours-input {
+      min-height: 36px;
+      padding: 0.44rem 0.5rem;
+      font-size: 0.88rem;
     }
   }
 }

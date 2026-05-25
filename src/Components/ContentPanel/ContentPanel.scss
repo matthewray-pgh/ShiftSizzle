@@ -1,27 +1,40 @@
-.content-panel-header {
-  margin-bottom: 10px;
-  padding: 10px;
+@use "../../Assets/Styles.scss" as styles;
 
-  background-color: #f5f5f5;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+.content-panel-header {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 247, 242, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 
   h2 {
     margin: 0;
-    padding: 5px 10px;
-    font-size: 1.5rem;
-    color: #333;
+    padding: 4px 8px;
+    font-size: 1.35rem;
+    color: styles.$text;
   }
 }
 
 .content-panel {
   margin: 10px 20px;
-  padding: 10px 20px;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
+  padding: 18px 22px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.07);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
 
   h2 {
     margin: 10px 5px;
     font-size: 18px;
+  }
+}
+
+@media (max-width: 700px) {
+  .content-panel {
+    margin: 10px 0;
+    padding: 16px;
+    border-radius: 14px;
   }
 }

@@ -129,6 +129,7 @@ export const Team = () => {
   const [touched, setTouched] = useState(createEmptyTouched());
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showRosterActionsMenu, setShowRosterActionsMenu] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All roles');
@@ -141,28 +142,17 @@ export const Team = () => {
   const [isCompactDesktop, setIsCompactDesktop] = useState(
     () => window.innerWidth <= COMPACT_DESKTOP_BREAKPOINT && window.innerWidth > MOBILE_VIEW_BREAKPOINT,
   );
-  const [showDownloadsMenu, setShowDownloadsMenu] = useState(false);
   const [importMode, setImportMode] = useState('add');
   const [importRows, setImportRows] = useState([]);
   const [importFileName, setImportFileName] = useState('');
   const [importFileError, setImportFileError] = useState('');
   const roleChipsRef = useRef(null);
   const importFileInputRef = useRef(null);
-  const downloadsMenuButtonRef = useRef(null);
-  const downloadsMenuRef = useRef(null);
+  const rosterActionsMenuRef = useRef(null);
   const activeViewMode = isMobileView ? VIEW_MODES.CARD : viewMode;
+  const showFullDesktopRosterTools = !isMobileView && !isCompactDesktop;
+  const showCollapsedRosterTools = !showFullDesktopRosterTools;
   const importPreview = buildRosterImportPreview(importRows, employees, importMode);
-
-  const focusDownloadsMenuItem = (targetIndex) => {
-    const menuItems = downloadsMenuRef.current?.querySelectorAll('[role="menuitem"]');
-
-    if (!menuItems?.length) {
-      return;
-    }
-
-    const boundedIndex = Math.max(0, Math.min(targetIndex, menuItems.length - 1));
-    menuItems[boundedIndex].focus();
-  };
 
   const switchView = (mode) => {
     if (mode === viewMode) {
@@ -240,30 +230,36 @@ export const Team = () => {
   }, []);
 
   useEffect(() => {
-    if (!showDownloadsMenu) {
+    if (!showRosterActionsMenu) {
       return undefined;
     }
 
-    const handlePointerDown = (event) => {
-      if (downloadsMenuRef.current?.contains(event.target)) {
-        return;
+    const handleOutsideClick = (event) => {
+      if (!rosterActionsMenuRef.current?.contains(event.target)) {
+        setShowRosterActionsMenu(false);
       }
-
-      setShowDownloadsMenu(false);
     };
 
-    document.addEventListener('mousedown', handlePointerDown);
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setShowRosterActionsMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
     };
-  }, [showDownloadsMenu]);
+  }, [showRosterActionsMenu]);
 
   useEffect(() => {
-    if (!isCompactDesktop) {
-      setShowDownloadsMenu(false);
+    if (showFullDesktopRosterTools) {
+      setShowRosterActionsMenu(false);
     }
-  }, [isCompactDesktop]);
+  }, [showFullDesktopRosterTools]);
 
   const updateFormField = (field, value) => {
     setForm((currentForm) => {
@@ -424,7 +420,7 @@ export const Team = () => {
   };
 
   const openImportModal = () => {
-    setShowDownloadsMenu(false);
+    setShowRosterActionsMenu(false);
     setImportMode('add');
     setImportRows([]);
     setImportFileName('');
@@ -456,62 +452,15 @@ export const Team = () => {
   };
 
   const exportRoster = () => {
+    setShowRosterActionsMenu(false);
     const csv = serializeRosterCsv(employees);
     downloadCsvFile('shiftsizzle-roster.csv', csv);
-    setShowDownloadsMenu(false);
   };
 
   const downloadBlankRosterTemplate = () => {
+    setShowRosterActionsMenu(false);
     const csv = createBlankRosterTemplateCsv();
     downloadCsvFile('shiftsizzle-roster-template.csv', csv);
-    setShowDownloadsMenu(false);
-  };
-
-  const handleDownloadsMenuTriggerKeyDown = (event) => {
-    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      setShowDownloadsMenu(true);
-      requestAnimationFrame(() => focusDownloadsMenuItem(0));
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setShowDownloadsMenu(true);
-      requestAnimationFrame(() => focusDownloadsMenuItem(2));
-    }
-  };
-
-  const handleDownloadsMenuItemKeyDown = (event, itemIndex) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setShowDownloadsMenu(false);
-      downloadsMenuButtonRef.current?.focus();
-      return;
-    }
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      focusDownloadsMenuItem(itemIndex + 1);
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      focusDownloadsMenuItem(itemIndex - 1);
-      return;
-    }
-
-    if (event.key === 'Home') {
-      event.preventDefault();
-      focusDownloadsMenuItem(0);
-      return;
-    }
-
-    if (event.key === 'End') {
-      event.preventDefault();
-      focusDownloadsMenuItem(2);
-    }
   };
 
   const handleImportFileChange = async (event) => {
@@ -582,131 +531,134 @@ export const Team = () => {
 
   return (
     <div className="team">
-      <section className="team__control-panel">
+      <ContentPanel className="team__control-panel">
         <div className="team__control-header">
           <div className="team__control-copy">
             <span className="team__control-eyebrow">Team workspace</span>
             <h2>Manage roster and staffing filters</h2>
             <p>Search, filter, and switch views from one control bar.</p>
           </div>
-          <div className="team__control-actions">
-            {!isMobileView && hasEmployees && (
-              <div className="team__control-view-group">
-                <span className="team__control-label">View</span>
-                <div className="team__view-toggle" role="group" aria-label="Team view mode">
-                  <span
-                    className={`team__view-toggle-indicator team__view-toggle-indicator--${viewMode}`}
-                    aria-hidden="true"
-                  />
-                  <button
-                    type="button"
-                    className={`team__view-toggle-button ${viewMode === VIEW_MODES.CARD ? 'is-active' : ''}`.trim()}
-                    onClick={() => switchView(VIEW_MODES.CARD)}
-                    title="Card view"
-                    aria-label="Card view"
-                  >
-                    <i className="fas fa-th-large" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`team__view-toggle-button ${viewMode === VIEW_MODES.LIST ? 'is-active' : ''}`.trim()}
-                    onClick={() => switchView(VIEW_MODES.LIST)}
-                    title="List view"
-                    aria-label="List view"
-                  >
-                    <i className="fas fa-list" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            )}
-            {isCompactDesktop ? (
-              <div className="team__downloads-menu" ref={downloadsMenuRef}>
-                <button
-                  ref={downloadsMenuButtonRef}
-                  type="button"
-                  className="team__toolbar-action team__toolbar-action--secondary team__downloads-menu-trigger"
-                  aria-haspopup="menu"
-                  aria-expanded={showDownloadsMenu}
-                  aria-label="Roster tools"
-                  onClick={() => setShowDownloadsMenu((currentState) => !currentState)}
-                  onKeyDown={handleDownloadsMenuTriggerKeyDown}
-                >
-                  <span className="team__action-icon" aria-hidden="true">
-                    <i className="fas fa-ellipsis-h" />
-                  </span>
-                  Roster tools
-                </button>
-                {showDownloadsMenu && (
-                  <div className="team__downloads-menu-popover" role="menu" aria-label="Roster tools menu">
+          {hasEmployees && (
+            <div className="team__control-actions">
+              {!isMobileView && (
+                <div className="team__control-view-group">
+                  <span className="team__control-label">View</span>
+                  <div className="team__view-toggle" role="group" aria-label="Team view mode">
+                    <span
+                      className={`team__view-toggle-indicator team__view-toggle-indicator--${viewMode}`}
+                      aria-hidden="true"
+                    />
                     <button
                       type="button"
-                      className="team__downloads-menu-item"
-                      role="menuitem"
-                      onKeyDown={(event) => handleDownloadsMenuItemKeyDown(event, 0)}
-                      onClick={openImportModal}
+                      className={`team__view-toggle-button ${viewMode === VIEW_MODES.CARD ? 'is-active' : ''}`.trim()}
+                      onClick={() => switchView(VIEW_MODES.CARD)}
+                      title="Card view"
+                      aria-label="Card view"
                     >
-                      <i className="fas fa-file-import" aria-hidden="true" />
-                      Import roster
+                      <i className="fas fa-th-large" aria-hidden="true" />
                     </button>
                     <button
                       type="button"
-                      className="team__downloads-menu-item"
-                      role="menuitem"
-                      onKeyDown={(event) => handleDownloadsMenuItemKeyDown(event, 1)}
-                      onClick={downloadBlankRosterTemplate}
+                      className={`team__view-toggle-button ${viewMode === VIEW_MODES.LIST ? 'is-active' : ''}`.trim()}
+                      onClick={() => switchView(VIEW_MODES.LIST)}
+                      title="List view"
+                      aria-label="List view"
                     >
-                      <i className="fas fa-file-arrow-down" aria-hidden="true" />
-                      Blank template
-                    </button>
-                    <button
-                      type="button"
-                      className="team__downloads-menu-item"
-                      role="menuitem"
-                      onKeyDown={(event) => handleDownloadsMenuItemKeyDown(event, 2)}
-                      onClick={exportRoster}
-                    >
-                      <i className="fas fa-download" aria-hidden="true" />
-                      Export roster
+                      <i className="fas fa-list" aria-hidden="true" />
                     </button>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="team__control-actions-secondary" aria-label="Roster download actions">
-                <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={downloadBlankRosterTemplate}>
-                  <span className="team__action-icon" aria-hidden="true">
-                    <i className="fas fa-file-arrow-down" />
-                  </span>
-                  Blank template
-                </Button>
-                <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={exportRoster}>
-                  <span className="team__action-icon" aria-hidden="true">
-                    <i className="fas fa-download" />
-                  </span>
-                  Export roster
-                </Button>
-              </div>
-            )}
-            <div className="team__control-actions-primary">
-              {!isCompactDesktop && (
-                <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
-                  <span className="team__action-icon" aria-hidden="true">
-                    <i className="fas fa-file-import" />
-                  </span>
-                  Import roster
-                </Button>
+                </div>
               )}
-              <Button
-                onClick={openCreateModal}
-                className="team__primary-action"
-              >
-                <span className="team__action-icon" aria-hidden="true">
-                  <i className="fas fa-plus" />
-                </span>
-                Add Employee
-              </Button>
+              {showFullDesktopRosterTools && (
+                <div className="team__control-actions-secondary" aria-label="Roster download actions">
+                  <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={downloadBlankRosterTemplate}>
+                    <span className="team__action-icon" aria-hidden="true">
+                      <i className="fas fa-file-arrow-down" />
+                    </span>
+                    Blank template
+                  </Button>
+                  <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={exportRoster}>
+                    <span className="team__action-icon" aria-hidden="true">
+                      <i className="fas fa-download" />
+                    </span>
+                    Export roster
+                  </Button>
+                </div>
+              )}
+              <div className="team__control-actions-primary">
+                {showCollapsedRosterTools && (
+                  <div className="team__downloads-menu" ref={rosterActionsMenuRef}>
+                    <Button
+                      type="button"
+                      className="team__toolbar-action team__toolbar-action--secondary"
+                      onClick={() => setShowRosterActionsMenu((current) => !current)}
+                      aria-haspopup="menu"
+                      aria-expanded={showRosterActionsMenu}
+                    >
+                      <span className="team__action-icon" aria-hidden="true">
+                        <i className="fas fa-ellipsis-h" />
+                      </span>
+                      Roster actions
+                    </Button>
+                    {showRosterActionsMenu && (
+                      <div className="team__downloads-menu-popover" role="menu" aria-label="Roster actions menu">
+                        <button
+                          type="button"
+                          className="team__downloads-menu-item"
+                          onClick={downloadBlankRosterTemplate}
+                          role="menuitem"
+                        >
+                          <span className="team__action-icon" aria-hidden="true">
+                            <i className="fas fa-file-arrow-down" />
+                          </span>
+                          Blank template
+                        </button>
+                        <button
+                          type="button"
+                          className="team__downloads-menu-item"
+                          onClick={exportRoster}
+                          role="menuitem"
+                        >
+                          <span className="team__action-icon" aria-hidden="true">
+                            <i className="fas fa-download" />
+                          </span>
+                          Export roster
+                        </button>
+                        <button
+                          type="button"
+                          className="team__downloads-menu-item"
+                          onClick={openImportModal}
+                          role="menuitem"
+                        >
+                          <span className="team__action-icon" aria-hidden="true">
+                            <i className="fas fa-file-import" />
+                          </span>
+                          Import roster
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {showFullDesktopRosterTools && (
+                  <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
+                    <span className="team__action-icon" aria-hidden="true">
+                      <i className="fas fa-file-import" />
+                    </span>
+                    Import roster
+                  </Button>
+                )}
+                <Button
+                  onClick={openCreateModal}
+                  className="team__primary-action"
+                >
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-plus" />
+                  </span>
+                  Add Employee
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {hasEmployees && (
@@ -797,7 +749,7 @@ export const Team = () => {
             </div>
           </div>
         )}
-      </section>
+      </ContentPanel>
 
       <section
         key={activeViewMode}

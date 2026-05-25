@@ -1,0 +1,256 @@
+@use "./Styles.scss" as styles;
+
+:root {
+  color-scheme: light;
+  --brand-primary: #{styles.$primary};
+  --brand-primary-strong: #{styles.$secondary};
+  --brand-primary-soft: rgba(255, 107, 53, 0.12);
+  --brand-primary-soft-strong: rgba(255, 107, 53, 0.18);
+  --brand-navy: #{styles.$primary-color};
+  --brand-slate: #{styles.$off-primary-color};
+  --brand-surface: #{styles.$primary-background};
+  --brand-card: #{styles.$card};
+  --brand-border: #{styles.$border};
+  --brand-text: #{styles.$text};
+  --brand-text-muted: #{styles.$text-secondary};
+  --brand-info: #{styles.$info};
+}
+
+::selection {
+  background: rgba(255, 107, 53, 0.18);
+  color: styles.$text;
+}
+
+a {
+  color: styles.$primary;
+}
+
+.dashboard__eyebrow,
+.scheduler__page-eyebrow,
+.scheduler__step-eyebrow,
+.team__control-eyebrow,
+.settings__page-eyebrow {
+  background: var(--brand-primary-soft) !important;
+  color: var(--brand-primary-strong) !important;
+}
+
+.dashboard__metric,
+.dashboard__panel,
+.team__member-panel,
+.team__table-card,
+.settings__group,
+.settings__hours-card,
+.scheduler__control-card,
+.scheduler__visual-block,
+.scheduler__open-shifts,
+.scheduler__day-editor-card,
+.scheduler__employee-card,
+.scheduler__canvas-row,
+.scheduler__canvas-day-cell {
+  border-radius: 14px !important;
+  border-color: rgba(203, 213, 225, 0.72) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07) !important;
+}
+
+.team__primary-action,
+.team__modal-primary-action,
+.team__modal-secondary-action,
+.team__toolbar-action,
+.team__edit-link,
+.team__availability-action,
+.team__modal-link-action,
+.settings__section-button,
+.settings__inline-button,
+.scheduler__workflow-step,
+.scheduler__requirements-card,
+.scheduler__stat-card,
+.scheduler__stats-row div,
+.scheduler__shift-toggle,
+.team__shift-chip {
+  border-radius: 10px !important;
+}
+
+.dashboard__metric,
+.dashboard__panel,
+.settings__group,
+.settings__hours-card,
+.scheduler__control-card,
+.scheduler__visual-block,
+.scheduler__open-shifts,
+.scheduler__day-editor-card,
+.scheduler__employee-card,
+.scheduler__canvas-row {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.94) 100%) !important;
+}
+
+.dashboard__panel--highlight,
+.scheduler__action-bar-copy,
+.scheduler__coverage-plan-status,
+.scheduler__publish-readiness.is-ready,
+.team__empty-state--onboarding {
+  background: linear-gradient(135deg, rgba(255, 247, 242, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%) !important;
+}
+
+.dashboard__panel--hours {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.04) 0%, rgba(30, 41, 59, 0.08) 100%) !important;
+}
+
+.dashboard__metric--blue strong {
+  color: var(--brand-primary-strong) !important;
+}
+
+.team__primary-action,
+.team__modal-primary-action,
+.team__search-submit,
+.team__view-toggle-indicator,
+.team__status-toggle-indicator,
+.team__modal-tab.is-active,
+.settings__section-button {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-strong) 100%) !important;
+  box-shadow: 0 12px 24px rgba(232, 90, 36, 0.24) !important;
+}
+
+.team__toolbar-action,
+.team__edit-link,
+.team__availability-action,
+.team__modal-link-action,
+.team__filter-chip.is-active,
+.settings__inline-button,
+.settings__token,
+.settings__token button,
+.scheduler__coverage-summary-chip,
+.scheduler__workflow-icon,
+.scheduler__employee-cap,
+.scheduler__view-switcher,
+.scheduler__coverage-plan-meta span,
+.scheduler__step-eyebrow,
+.scheduler__coverage-state.is-pending {
+  background: var(--brand-primary-soft) !important;
+  border-color: rgba(255, 107, 53, 0.22) !important;
+  color: var(--brand-primary-strong) !important;
+  box-shadow: none !important;
+}
+
+.team__toolbar-action:hover,
+.team__edit-link:hover,
+.team__availability-action:hover,
+.team__modal-link-action:hover,
+.team__filter-chip.is-active:hover {
+  background: var(--brand-primary-soft-strong) !important;
+  border-color: rgba(255, 107, 53, 0.34) !important;
+}
+
+.team__search-shell:focus-within,
+.team__modal .input-field input:focus,
+.team__modal .input-field select:focus,
+.team__modal .input-field textarea:focus,
+.scheduler__workflow-step:hover,
+.scheduler__workflow-step:focus-visible,
+.scheduler__role-select:focus,
+.settings__section-form:has(.settings__dirty-indicator) {
+  border-color: rgba(255, 107, 53, 0.34) !important;
+  box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1) !important;
+}
+
+.team__control-actions-secondary,
+.team__downloads-menu-popover,
+.team__control-view-group,
+.team__status-toggle,
+.team__modal-tabs,
+.scheduler__coverage-plan-status,
+.scheduler__control-card,
+.scheduler__visual-block,
+.settings__group,
+.settings__hours-card {
+  border-color: rgba(203, 213, 225, 0.82) !important;
+}
+
+.team__control-copy h2,
+.settings__page-copy h2,
+.scheduler__page-copy h2,
+.dashboard__hours-item strong,
+.scheduler__control-card-header h3,
+.scheduler__scope-summary-item dd,
+.scheduler__canvas-person strong,
+.team__member-name,
+.settings__group-copy h3 {
+  color: var(--brand-navy) !important;
+}
+
+.team__member-title,
+.team__member-shifts,
+.team__availability-summary-label,
+.scheduler__coverage-state.is-complete,
+.scheduler__publish-readiness.is-ready,
+.settings__saved {
+  color: #b84a1f !important;
+}
+
+.team__member-shifts,
+.team__availability-summary-link,
+.scheduler__coverage-state.is-complete,
+.scheduler__publish-readiness.is-ready {
+  background: rgba(255, 107, 53, 0.12) !important;
+}
+
+.team__downloads-menu-item:hover,
+.team__toolbar-action--secondary:hover,
+.scheduler__view-switch.is-active,
+.scheduler__requirements-card,
+.scheduler__stats-row div,
+.scheduler__stat-card,
+.settings__token--base,
+.settings__hours-card,
+.dashboard__panel {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+}
+
+.scheduler__coverage-plan-button,
+.scheduler__shift-toggle.is-active,
+.team__shift-chip.is-active {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-strong) 100%) !important;
+  border-color: var(--brand-primary) !important;
+  color: #fff !important;
+}
+
+.scheduler__workflow-step.is-complete .scheduler__workflow-icon,
+.scheduler__workflow-step.is-complete .scheduler__workflow-line {
+  background: rgba(255, 107, 53, 0.18) !important;
+  border-color: rgba(255, 107, 53, 0.3) !important;
+  color: var(--brand-primary-strong) !important;
+}
+
+.scheduler__coverage-plan-meta span,
+.scheduler__scope-summary-item,
+.dashboard__hours-item,
+.team__table th,
+.team__table td,
+.settings__group,
+.settings__hours-card {
+  border-color: rgba(203, 213, 225, 0.72) !important;
+}
+
+.settings__toggle.is-active {
+  color: var(--brand-primary-strong) !important;
+}
+
+.settings__toggle.is-active .settings__toggle-track {
+  background: rgba(255, 107, 53, 0.28) !important;
+}
+
+.scheduler__publish-readiness.is-blocked,
+.settings__dirty-indicator {
+  background: rgba(245, 158, 11, 0.14) !important;
+}
+
+@media (max-width: 700px) {
+  .team__primary-action,
+  .team__toolbar-action,
+  .team__modal-primary-action,
+  .team__modal-secondary-action,
+  .settings__section-button,
+  .settings__inline-button,
+  .scheduler__coverage-plan-button {
+    width: 100%;
+  }
+}

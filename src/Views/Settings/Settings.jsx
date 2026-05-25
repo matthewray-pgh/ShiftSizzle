@@ -16,6 +16,7 @@ export const Settings = () => {
   const [newShiftType, setNewShiftType] = useState('');
   const [newTeamRole, setNewTeamRole] = useState('');
   const baseTeamRoles = Object.values(BASE_TEAM_ROLES);
+  const derivedWeekEnd = form.weekStartsOn ? DAYS[(DAYS.indexOf(form.weekStartsOn) + 6) % DAYS.length] : '';
 
   useEffect(() => {
     setForm(state.settings);
@@ -30,6 +31,7 @@ export const Settings = () => {
   ].some((field) => form[field] !== state.settings[field]);
   const shiftsDirty = JSON.stringify(form.shiftTypes) !== JSON.stringify(state.settings.shiftTypes);
   const rolesDirty = JSON.stringify(form.additionalTeamRoles) !== JSON.stringify(state.settings.additionalTeamRoles);
+  const schedulingDirty = form.weekStartsOn !== state.settings.weekStartsOn;
   const hoursDirty = JSON.stringify(form.operatingHours) !== JSON.stringify(state.settings.operatingHours);
 
   const updateForm = (field, value) => {
@@ -156,7 +158,7 @@ export const Settings = () => {
             </div>
             <div className="settings__inline-form">
               <InputField label="Add Shift Type" name="newShiftType" value={newShiftType} onChange={setNewShiftType} placeholder="Ex. Prep" />
-              <Button type="button" className="settings__inline-button" onClick={addShiftType}>
+              <Button type="button" className="settings__inline-button button-outline" onClick={addShiftType}>
                 <span className="settings__action-icon" aria-hidden="true">
                   <i className="fas fa-plus" />
                 </span>
@@ -201,7 +203,7 @@ export const Settings = () => {
             </div>
             <div className="settings__inline-form">
               <InputField label="Add Custom Role" name="newTeamRole" value={newTeamRole} onChange={setNewTeamRole} placeholder="Ex. Dishwasher" />
-              <Button type="button" className="settings__inline-button" onClick={addTeamRole}>
+              <Button type="button" className="settings__inline-button button-outline" onClick={addTeamRole}>
                 <span className="settings__action-icon" aria-hidden="true">
                   <i className="fas fa-plus" />
                 </span>
@@ -221,6 +223,51 @@ export const Settings = () => {
 
           <form
             className="settings__group settings__section-form"
+            aria-label="Scheduling week settings"
+            onSubmit={handleSaveSection('schedule-week', { weekStartsOn: form.weekStartsOn })}
+          >
+            <div className="settings__group-copy">
+              <div className="settings__group-heading">
+                <h3>Scheduling Week</h3>
+                {schedulingDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
+              </div>
+              <p>Set the day your scheduling week starts. Scheduler week selection will use that day and automatically run through the next six days.</p>
+            </div>
+            <label className="settings__field-label" htmlFor="week-starts-on">Week Starts On</label>
+            <select
+              id="week-starts-on"
+              className="settings__select"
+              value={form.weekStartsOn ?? ''}
+              onChange={(event) => updateForm('weekStartsOn', event.target.value)}
+            >
+              <option value="">Select week start</option>
+              {DAYS.map((day) => (
+                <option key={day} value={day}>{day}</option>
+              ))}
+            </select>
+            <div className="settings__week-preview" aria-label="Scheduling week preview">
+              <div className="settings__week-preview-item">
+                <span>Week start</span>
+                <strong>{form.weekStartsOn || 'Not set'}</strong>
+              </div>
+              <div className="settings__week-preview-item">
+                <span>Week end</span>
+                <strong>{derivedWeekEnd || 'Not set'}</strong>
+              </div>
+            </div>
+            <div className="settings__actions">
+              <Button type="submit" className="settings__section-button" disabled={!schedulingDirty || !form.weekStartsOn}>
+                <span className="settings__action-icon" aria-hidden="true">
+                  <i className="fas fa-calendar-week" />
+                </span>
+                Save Scheduling Week
+              </Button>
+              {savedSection === 'schedule-week' && <p className="settings__saved">Scheduling week settings saved locally for this device.</p>}
+            </div>
+          </form>
+
+          <form
+            className="settings__group settings__section-form"
             aria-label="Operating hours settings"
             onSubmit={handleSaveSection('hours', { operatingHours: form.operatingHours })}
           >
@@ -231,14 +278,40 @@ export const Settings = () => {
               </div>
               <p>Set which days you operate and the opening and closing hours for each day.</p>
             </div>
-            <div className="settings__hours-grid">
+            <div className="settings__hours-table" aria-label="Business hours table">
               {DAYS.map((day) => {
                 const hours = form.operatingHours[day];
 
                 return (
-                  <div key={day} className="settings__hours-card">
-                    <div className="settings__hours-header">
+                  <div key={day} className="settings__hours-row">
+                    <div className="settings__hours-day">
                       <strong>{day}</strong>
+                    </div>
+                    <div className="settings__hours-time">
+                      <label htmlFor={`${day}-open-time`} className="settings__hours-label">Open</label>
+                      <input
+                        id={`${day}-open-time`}
+                        name={`${day}-open-time`}
+                        type="time"
+                        className="settings__hours-input"
+                        value={hours.openTime}
+                        onChange={(event) => updateOperatingHours(day, 'openTime', event.target.value)}
+                        disabled={!hours.isOpen}
+                      />
+                    </div>
+                    <div className="settings__hours-time">
+                      <label htmlFor={`${day}-close-time`} className="settings__hours-label">Close</label>
+                      <input
+                        id={`${day}-close-time`}
+                        name={`${day}-close-time`}
+                        type="time"
+                        className="settings__hours-input"
+                        value={hours.closeTime}
+                        onChange={(event) => updateOperatingHours(day, 'closeTime', event.target.value)}
+                        disabled={!hours.isOpen}
+                      />
+                    </div>
+                    <div className="settings__hours-toggle-cell">
                       <button
                         type="button"
                         className={`settings__toggle ${hours.isOpen ? 'is-active' : ''}`.trim()}
@@ -251,24 +324,6 @@ export const Settings = () => {
                         </span>
                         <span>{hours.isOpen ? 'Open' : 'Closed'}</span>
                       </button>
-                    </div>
-                    <div className="settings__hours-fields">
-                      <InputField
-                        label="Open"
-                        name={`${day}-open-time`}
-                        type="time"
-                        value={hours.openTime}
-                        onChange={(value) => updateOperatingHours(day, 'openTime', value)}
-                        disabled={!hours.isOpen}
-                      />
-                      <InputField
-                        label="Close"
-                        name={`${day}-close-time`}
-                        type="time"
-                        value={hours.closeTime}
-                        onChange={(value) => updateOperatingHours(day, 'closeTime', value)}
-                        disabled={!hours.isOpen}
-                      />
                     </div>
                   </div>
                 );

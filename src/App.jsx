@@ -1,7 +1,7 @@
 import { Layout } from "./Components/Layout";
 import { Routes, Route } from "react-router-dom";
 
-import { Dashboard, Messages, Scheduler, Shifts, Settings, Team } from "./Views";
+import { Dashboard, Scheduler, Shifts, Settings, Team } from "./Views";
 
 export default function App() {
   return (
@@ -11,7 +11,6 @@ export default function App() {
         <Route path="/scheduler" element={<Scheduler />} />
         <Route path="/shifts" element={<Shifts />} />
         <Route path="/team" element={<Team />} />
-        <Route path="/messages" element={<Messages />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>
