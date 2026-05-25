@@ -146,12 +146,16 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 - [x] Complete auto-build behavior and manual assignment editing.
 - [ ] Surface conflict states, unavailable employees, and coverage gaps clearly. [Owner: Scheduling Eng] [Phase: MVP-Next]
 - [x] Add a clear draft-to-published schedule flow in the UI.
+- [x] Clarify schedule context management with explicit new-context action, active editing-context status, and guarded week/role switching. [Owner: Frontend Eng] [Phase: MVP-Next]
 
 ### 3. Published Schedule Consumption
 
 - [x] Make the Shifts view reflect the published schedule state instead of placeholder content. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Add week navigation and recent schedule history in the frontend. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Clarify what a manager can review after publish: assignments, coverage, and unresolved issues. [Owner: Product + Frontend Eng] [Phase: MVP-Next]
+- [x] Add published schedule filtering by selectable range and role, with reset behavior and URL deep-link persistence. [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Add grouped published schedule selection cards and improve default/no-match list states for clearer browsing. [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Improve assignment review controls and layout context (employee/day-first views, selected schedule context chip, simplified employee table columns). [Owner: Frontend Eng] [Phase: MVP-Next]
 
 ### 4. Settings That Drive Scheduling
 
