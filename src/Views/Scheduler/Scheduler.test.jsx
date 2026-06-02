@@ -17,16 +17,14 @@ describe('Scheduler view', () => {
   it('renders the scheduler page', () => {
     renderView(Scheduler);
 
-    expect(screen.getByText('Schedule Control Panel')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Define demand' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Build draft' })).toBeInTheDocument();
+    expect(screen.getByText('Build Schedule')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Set up and generate' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Resolve issues' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Publish Schedule' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Schedule workflow')).toBeInTheDocument();
-    expect(screen.getAllByText('Choose week.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Set the workspace week start in Settings before choosing a week to generate.').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('You are editing: no active schedule context selected yet.');
-    expect(screen.getByRole('button', { name: 'Create new schedule context' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No schedule started yet');
+    expect(screen.getByRole('button', { name: 'Start over with a blank schedule' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset to blank draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeInTheDocument();
@@ -34,8 +32,8 @@ describe('Scheduler view', () => {
     expect(screen.queryByText('Schedule Visualizations')).not.toBeInTheDocument();
     const statusPanel = screen.getByLabelText('Schedule status panel');
 
-    expect(within(statusPanel).getByText('Active week')).toBeInTheDocument();
-    expect(within(statusPanel).getAllByText('Not selected').length).toBe(2);
+    expect(within(statusPanel).getByText('Draft schedule')).toBeInTheDocument();
+    expect(within(statusPanel).getByText('Set the week and role to start planning.')).toBeInTheDocument();
     expect(screen.getByLabelText('Week start date')).toBeDisabled();
     const setupNotice = screen.getByLabelText('Scheduling week setup notice');
 
@@ -43,7 +41,7 @@ describe('Scheduler view', () => {
     expect(within(setupNotice).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
     expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
-    expect(screen.getByText('Choose the week and role in Phase 1 before editing the schedule.')).toBeInTheDocument();
+    expect(screen.getByText('Choose the week and role in Set up and generate before editing the schedule.')).toBeInTheDocument();
     expect(screen.getAllByRole('spinbutton')[0]).toBeDisabled();
   });
 
@@ -62,8 +60,6 @@ describe('Scheduler view', () => {
       },
     }));
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
     render(
       <AppStateProvider>
         <Scheduler />
@@ -72,7 +68,9 @@ describe('Scheduler view', () => {
 
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Server' } });
 
-    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Switch schedule?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByLabelText('Role')).toHaveValue('Manager');
   });
 
@@ -91,7 +89,34 @@ describe('Scheduler view', () => {
       },
     }));
 
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <AppStateProvider>
+        <Scheduler />
+      </AppStateProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start over with a blank schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch schedule' }));
+
+    expect(screen.getByLabelText('Week start date')).toHaveValue('');
+    expect(screen.getByLabelText('Role')).toHaveValue('');
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No schedule started yet');
+  });
+
+  it('applies the newly chosen week after confirming the switch modal', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        weekStartsOn: 'Sunday',
+      },
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        hasUnsavedChanges: true,
+        status: 'draft',
+      },
+    }));
 
     render(
       <AppStateProvider>
@@ -99,11 +124,15 @@ describe('Scheduler view', () => {
       </AppStateProvider>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create new schedule context' }));
+    fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: '2026-06-07' } });
 
-    expect(screen.getByLabelText('Week start date')).toHaveValue('');
-    expect(screen.getByLabelText('Role')).toHaveValue('');
-    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('You are editing: no active schedule context selected yet.');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch schedule' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Week start date')).toHaveValue('2026-06-07');
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('Jun 7 - Jun 13, 2026');
   });
 
   it('hides closed days from scheduling controls', () => {
@@ -208,10 +237,9 @@ describe('Scheduler view', () => {
     expect(publishButton).toBeDisabled();
     expect(screen.getByText('Active week needs attention')).toBeInTheDocument();
     expect(screen.getAllByText('Confirm the coverage plan before publishing.').length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'Define demand' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Build draft' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Set up and generate' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Resolve issues' })).toBeInTheDocument();
-    expect(screen.getAllByText('Publish schedule').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Publish Schedule' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm coverage plan' }));
@@ -220,15 +248,16 @@ describe('Scheduler view', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate draft' }));
 
-    expect(screen.getAllByText('Publish schedule').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Publish Schedule' })).toBeInTheDocument();
     expect(publishButton).toBeDisabled();
-    expect(screen.getByText('Save the current draft before publishing.')).toBeInTheDocument();
+    expect(screen.getAllByText('Save the current draft before publishing.').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
 
     expect(screen.getByText(/Last saved /)).toBeInTheDocument();
     expect(publishButton).toBeEnabled();
-    expect(screen.getByText('Ready to publish.')).toBeInTheDocument();
+    expect(screen.getByText('Latest draft saved')).toBeInTheDocument();
+    expect(screen.getByLabelText('Publish bar')).toBeInTheDocument();
 
     fireEvent.click(publishButton);
 
@@ -317,7 +346,7 @@ describe('Scheduler view', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Schedule notes'), { target: { value: 'Bring in patio support.' } });
 
-    expect(screen.getByText('Save the current draft before publishing.')).toBeInTheDocument();
+    expect(screen.getAllByText('Save the current draft before publishing.').length).toBeGreaterThan(0);
     expect(screen.getByText('Unsaved changes since the last draft save.')).toBeInTheDocument();
     expect(publishButton).toBeDisabled();
 
@@ -327,7 +356,7 @@ describe('Scheduler view', () => {
     expect(publishButton).toBeEnabled();
   });
 
-  it('marks the coverage workflow step complete after coverage targets are reviewed', () => {
+  it('requires coverage confirmation before draft generation after targets change', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: {
         weekStartsOn: 'Sunday',
@@ -346,21 +375,23 @@ describe('Scheduler view', () => {
       </AppStateProvider>
     );
 
-    expect(screen.getAllByText('Add targets.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Add at least one required slot to define demand.').length).toBeGreaterThan(0);
 
     const mondayInput = screen.getAllByRole('spinbutton')[0];
     fireEvent.change(mondayInput, { target: { value: '2' } });
 
-    expect(screen.getAllByText('Confirm targets.').length).toBeGreaterThan(0);
+    expect(screen.getByText('Confirm demand before generating the first draft.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm coverage plan' }));
 
-    expect(screen.queryByText('Confirm targets.')).not.toBeInTheDocument();
-    expect(screen.getByText(/confirmed\./)).toBeInTheDocument();
+    expect(screen.getByText('Coverage confirmed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
 
     fireEvent.change(mondayInput, { target: { value: '3' } });
 
-    expect(screen.getAllByText('Confirm targets.').length).toBeGreaterThan(0);
+    expect(screen.getByText('Confirm demand before generating the first draft.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
   });
 
   it('switches the weekly schedule editor between individual, day, and comprehensive views', () => {

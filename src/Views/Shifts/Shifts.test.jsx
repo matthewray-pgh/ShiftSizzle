@@ -27,6 +27,7 @@ describe('Shifts view', () => {
     expect(
       screen.getByText('Publish a schedule in Scheduler to review assignments, coverage, and unresolved issues here.'),
     ).toBeInTheDocument();
+    expect(screen.queryByText('draft')).not.toBeInTheDocument();
   });
 
   it('renders published assignments, coverage, and unresolved issue summaries', () => {
@@ -93,7 +94,7 @@ describe('Shifts view', () => {
 
     renderShifts();
 
-    expect(screen.getByText('Select date range first, then role, then choose a published schedule to inspect below.')).toBeInTheDocument();
+    expect(screen.getByText('Manager coverage for May 25 - May 31, 2026.')).toBeInTheDocument();
     expect(screen.getByLabelText('Assignment review summary')).toHaveTextContent('2 assigned slots across 1 team members.');
     expect(screen.getByLabelText('Coverage review summary')).toHaveTextContent('3 required slots for the week.');
     expect(screen.getByLabelText('Coverage review summary')).toHaveTextContent('1 unfilled slots after publish.');
@@ -124,7 +125,9 @@ describe('Shifts view', () => {
 
     const assignmentsHeading = screen.getByRole('heading', { name: 'Published assignments' });
     const summaryHeading = screen.getByRole('heading', { name: 'Assignments' });
-    expect(assignmentsHeading.compareDocumentPosition(summaryHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summaryHeading.compareDocumentPosition(assignmentsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const dayCoverageHeading = screen.getByRole('heading', { name: 'Day coverage' });
+    expect(dayCoverageHeading.compareDocumentPosition(assignmentsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('supports selecting schedules from the matching schedule list', () => {

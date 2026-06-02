@@ -689,26 +689,61 @@
     }
   }
 
-  &__archive-btn {
+  &__archive-btn,
+  &__reactivate-btn,
+  &__edit-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
     width: fit-content;
-    margin-top: 8px;
-    padding: 8px 12px;
-    border: none;
-    border-radius: 12px;
-    background: rgba(239, 68, 68, 0.12);
-    color: styles.$danger;
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.94);
+    color: #334155;
     cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.1;
+    transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
+
+    &:hover {
+      transform: translateY(-1px);
+      background: #f8fafc;
+      border-color: rgba(37, 99, 235, 0.18);
+    }
+  }
+
+  &__archive-btn {
+    color: #b42318;
+    background: rgba(254, 242, 242, 0.92);
+    border-color: rgba(239, 68, 68, 0.18);
+
+    &:hover {
+      background: rgba(254, 226, 226, 0.96);
+      border-color: rgba(239, 68, 68, 0.28);
+      color: #991b1b;
+    }
   }
 
   &__reactivate-btn {
-    width: fit-content;
-    margin-top: 8px;
-    padding: 8px 12px;
-    border: none;
-    border-radius: 12px;
-    background: rgba(34, 197, 94, 0.12);
-    color: styles.$success;
-    cursor: pointer;
+    color: #15803d;
+    background: rgba(240, 253, 244, 0.94);
+    border-color: rgba(34, 197, 94, 0.18);
+
+    &:hover {
+      background: rgba(220, 252, 231, 0.98);
+      border-color: rgba(34, 197, 94, 0.28);
+      color: #166534;
+    }
+  }
+
+  &__member-details .team__archive-btn,
+  &__member-details .team__reactivate-btn {
+    margin-top: 6px;
   }
 
   &__empty-state {
@@ -879,21 +914,11 @@
   }
 
   &__edit-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 8px 12px;
-    border: 1px solid rgba(37, 99, 235, 0.16);
-    border-radius: 12px;
-    background: rgba(37, 99, 235, 0.08);
     color: #1d4ed8;
-    cursor: pointer;
-    font: inherit;
-    font-weight: 600;
-    transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.16);
 
     &:hover {
-      transform: translateY(-1px);
       background: rgba(37, 99, 235, 0.12);
       border-color: rgba(37, 99, 235, 0.28);
     }

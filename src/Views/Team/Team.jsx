@@ -134,7 +134,7 @@ export const Team = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All roles');
   const [statusFilter, setStatusFilter] = useState('active');
-  const [viewMode, setViewMode] = useState(VIEW_MODES.CARD);
+  const [viewMode, setViewMode] = useState(VIEW_MODES.LIST);
   const [slideDir, setSlideDir] = useState('from-right');
   const [activeModalTab, setActiveModalTab] = useState(MODAL_TABS.DETAILS);
   const [roleChipOverflow, setRoleChipOverflow] = useState({ showLeft: false, showRight: false });

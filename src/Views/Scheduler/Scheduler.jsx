@@ -34,6 +34,7 @@ export const Scheduler = () => {
   const { state, dispatch } = useAppState();
   const { employees, schedule, settings } = state;
   const [editorView, setEditorView] = useState(getInitialEditorView);
+  const [pendingContextSwitch, setPendingContextSwitch] = useState(null);
   const openDays = getOpenDays(settings);
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
@@ -84,7 +85,7 @@ export const Scheduler = () => {
     });
   };
 
-  const confirmContextSwitch = () => {
+  const guardContextSwitch = (onConfirm) => {
     const hasDraftSignals = Boolean(
       hasWeekRange
       || hasRoleSelected
@@ -95,47 +96,36 @@ export const Scheduler = () => {
     );
     const hasUnpublishedDraft = schedule.status !== 'published' && (Boolean(schedule.hasUnsavedChanges) || Boolean(schedule.lastSavedAt));
 
-    if (!hasUnpublishedDraft || !hasDraftSignals || typeof window === 'undefined') {
-      return true;
+    if (!hasUnpublishedDraft || !hasDraftSignals) {
+      onConfirm();
+      return;
     }
 
-    return window.confirm('You have unpublished schedule work in progress. Switching week or role will move you into a different schedule context. Continue?');
+    setPendingContextSwitch({ onConfirm });
   };
 
   const handleRoleChange = (e) => {
-    if (e.target.value === selectedRole) {
+    const nextRole = e.target.value;
+
+    if (nextRole === selectedRole) {
       return;
     }
 
-    if (!confirmContextSwitch()) {
-      return;
-    }
-
-    dispatch({ type: 'SET_SELECTED_ROLE', payload: e.target.value });
+    guardContextSwitch(() => dispatch({ type: 'SET_SELECTED_ROLE', payload: nextRole }));
   };
 
   const handleWeekStartChange = (e) => {
-    if (e.target.value === schedule.startDate) {
+    const nextWeekStart = e.target.value;
+
+    if (nextWeekStart === schedule.startDate) {
       return;
     }
 
-    if (!confirmContextSwitch()) {
-      return;
-    }
-
-    dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: e.target.value });
+    guardContextSwitch(() => dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: nextWeekStart }));
   };
 
   const handleCreateNewScheduleContext = () => {
-    if (!confirmContextSwitch()) {
-      return;
-    }
-
-    dispatch({ type: 'START_NEW_SCHEDULE_CONTEXT' });
-  };
-
-  const scrollToWorkflowSection = (sectionId) => {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    guardContextSwitch(() => dispatch({ type: 'START_NEW_SCHEDULE_CONTEXT' }));
   };
 
   const filteredEmployees = useMemo(
@@ -228,24 +218,29 @@ export const Scheduler = () => {
     && (hasCoverageTargets || currentRoleDraftExists || coveragePlanComplete || Boolean(schedule.notes.trim()));
   const canPublish = publishReady && !hasUnsavedChanges && Boolean(schedule.lastSavedAt);
 
+  const confirmCoverageIsNextAction = canConfirmCoverage && !coveragePlanComplete;
+  const saveDraftIsNextAction = Boolean(publishReady && hasUnsavedChanges);
+  const coverageSetupReady = hasWeekRange && hasRoleSelected;
+
   const buildActionLabel = currentRoleDraftExists ? 'Rebuild draft' : 'Generate draft';
   const resetDraftLabel = currentRoleDraftExists ? 'Clear current role draft' : 'Reset to blank draft';
 
   const scheduleStatusLabel = schedule.status === 'published' ? 'Published schedule' : 'Draft schedule';
-  const activeWeekLabel = hasWeekRange ? schedule.weekLabel : 'Not selected';
-  const roleFocusLabel = hasRoleSelected ? selectedRole : 'Not selected';
+  const shiftsViewLink = hasWeekRange && hasRoleSelected
+    ? `/shifts?range=${encodeURIComponent(`${schedule.startDate}__${schedule.endDate}`)}&role=${encodeURIComponent(schedule.selectedRole)}`
+    : '/shifts';
 
   const heroSubhead = hasWeekRange && hasRoleSelected
     ? `Build and publish the active ${schedule.weekLabel} staffing plan for ${selectedRole} coverage.`
     : 'Choose a week, select a role, and confirm demand before generating a schedule.';
 
   const editingContextLine = hasWeekRange && hasRoleSelected
-    ? `You are editing: ${selectedRole} for ${schedule.weekLabel}.`
+    ? `Active: ${selectedRole} \u00b7 ${schedule.weekLabel}`
     : hasWeekRange
-      ? `You are editing: unassigned role for ${schedule.weekLabel}.`
+      ? `Active week: ${schedule.weekLabel} \u2014 role not set`
       : hasRoleSelected
-        ? `You are editing: ${selectedRole} with no week selected.`
-        : 'You are editing: no active schedule context selected yet.';
+        ? `Active role: ${selectedRole} \u2014 week not set`
+        : 'No schedule started yet';
 
   const weekSelectionNote = !hasWeekSettings
     ? 'Set the workspace week start in Settings before choosing a week to generate.'
@@ -283,6 +278,16 @@ export const Scheduler = () => {
                 ? 'Add or reactivate employees for this role before publishing.'
                 : 'Add at least one assignment before publishing.';
 
+  const headerStatusSummary = hasWeekRange && hasRoleSelected
+    ? !coveragePlanComplete
+      ? 'Confirm demand before generating the first draft.'
+      : !currentRoleDraftExists
+        ? 'Generate the first draft for this week and role.'
+        : canPublish
+          ? 'Ready to publish or review in Shifts.'
+          : publishSummary
+    : 'Set the week and role to start planning.';
+
   const workflowPublishDescription = canPublish
     ? 'Ready to publish.'
     : !hasWeekRange
@@ -301,13 +306,15 @@ export const Scheduler = () => {
                 ? 'Add staff.'
                 : 'Add assignments.';
 
+  const saveStepComplete = Boolean(schedule.lastSavedAt) && !hasUnsavedChanges;
+
   const resolvePhaseDescription = !hasWeekRange
     ? 'Choose a week first.'
     : !hasRoleSelected
       ? 'Select a role first.'
       : !currentRoleDraftExists
         ? 'Generate a draft first.'
-    : issuesResolved
+      : issuesResolved
       ? 'No blockers remain.'
       : totalOpenSlots > 0 && employeeLimitAlerts.length > 0
         ? `${totalOpenSlots} gaps and ${employeeLimitAlerts.length} alerts remain.`
@@ -344,32 +351,20 @@ export const Scheduler = () => {
   ];
 
   const nextGenerationCheckpoint = generationCheckpoints.find((checkpoint) => !checkpoint.complete);
+  const buildPendingCheckpoints = generationCheckpoints.filter((checkpoint) => !checkpoint.complete);
 
   const workflowSteps = [
     {
-      id: 'demand',
-      targetId: 'scheduler-demand-phase',
-      label: 'Define demand',
-      description: coveragePlanComplete
-        ? `${totalRequiredSlots} ${totalRequiredSlots === 1 ? 'slot' : 'slots'} confirmed.`
-        : !hasWeekRange
-          ? 'Choose week.'
-          : !hasRoleSelected
-            ? 'Select role.'
-            : hasCoverageTargets
-              ? 'Confirm targets.'
-              : 'Add targets.',
-      complete: coveragePlanComplete,
-    },
-    {
-      id: 'build',
-      targetId: 'scheduler-build-phase',
-      label: 'Build draft',
+      id: 'setup',
+      targetId: 'scheduler-setup-phase',
+      label: 'Set up and generate',
       description: currentRoleDraftExists
         ? `${scheduledTotals} ${scheduledTotals === 1 ? 'shift' : 'shifts'} assigned.`
         : canGenerateDraft
           ? 'Generate first pass.'
-          : nextGenerationCheckpoint?.pendingCopy ?? 'Complete setup first.',
+          : coveragePlanComplete
+            ? 'Generate draft.'
+            : nextGenerationCheckpoint?.pendingCopy ?? 'Complete setup first.',
       complete: currentRoleDraftExists,
     },
     {
@@ -389,7 +384,7 @@ export const Scheduler = () => {
   ];
 
   const editorViewOptions = [
-    { id: 'individual', label: 'Individual', ariaLabel: 'Individual employee view' },
+    { id: 'individual', label: 'Individual', ariaLabel: 'Individual employee view', recommended: true },
     { id: 'day', label: 'Daily', ariaLabel: 'Daily view' },
     { id: 'comprehensive', label: 'Weekly', ariaLabel: 'Weekly view' },
   ];
@@ -399,6 +394,16 @@ export const Scheduler = () => {
     day: 'Work day-by-day when you want to fill coverage gaps for a specific service period first.',
     comprehensive: 'Scan the whole week as one scheduling canvas, then adjust day cells inline without jumping between cards.',
   };
+
+  const publishStateLabel = saveStepComplete
+    ? 'Latest draft saved'
+    : hasUnsavedChanges
+      ? 'Unsaved changes'
+      : schedule.lastSavedAt
+        ? 'Saved draft needs review'
+        : 'Draft not saved yet';
+
+  const publishBarTitle = canPublish ? 'Ready to publish active week' : 'Active week needs attention';
 
   useEffect(() => {
     window.sessionStorage.setItem(EDITOR_VIEW_STORAGE_KEY, editorView);
@@ -549,12 +554,9 @@ export const Scheduler = () => {
         <div className="scheduler__page-header">
           <div className="scheduler__page-copy">
             <span className="scheduler__page-eyebrow">Schedule workspace</span>
-            <h2>Schedule Control Panel</h2>
+            <h2>Build Schedule</h2>
             <p className="scheduler__subhead">
               {heroSubhead}
-            </p>
-            <p className="scheduler__hero-summary">
-              Use this workspace to configure one schedule at a time, then publish it once each checkpoint is complete.
             </p>
             <p className="scheduler__editing-context" aria-label="Active editing context">
               {editingContextLine}
@@ -564,62 +566,30 @@ export const Scheduler = () => {
             <div className={`scheduler__status scheduler__status--${schedule.status}`}>
               {scheduleStatusLabel}
             </div>
-            <dl className="scheduler__status-meta">
-              <div className="scheduler__status-meta-item">
-                <dt>Active week</dt>
-                <dd>{activeWeekLabel}</dd>
-              </div>
-              <div className="scheduler__status-meta-item">
-                <dt>Role in focus</dt>
-                <dd>{roleFocusLabel}</dd>
-              </div>
-            </dl>
+            <p className="scheduler__status-summary">{headerStatusSummary}</p>
           </div>
         </div>
       </ContentPanel>
 
       <div className="scheduler__workflow-shell">
-        <ContentPanel>
-          <div className="scheduler__workflow-panel" aria-label="Schedule workflow">
-            {workflowSteps.map((step, index) => (
-              <button
-                key={step.id}
-                type="button"
-                className={`scheduler__workflow-step ${step.complete ? 'is-complete' : 'is-pending'}`.trim()}
-                onClick={() => scrollToWorkflowSection(step.targetId)}
-              >
-                <div className="scheduler__workflow-step-marker" aria-hidden="true">
-                  <span className="scheduler__workflow-icon">
-                    <i className={`fas ${step.complete ? 'fa-check' : 'fa-circle'}`} />
-                  </span>
-                  {index < workflowSteps.length - 1 && <span className="scheduler__workflow-line" />}
-                </div>
-                <div className="scheduler__workflow-step-copy">
-                  <strong>{step.label}</strong>
-                  <p>{step.description}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </ContentPanel>
       </div>
 
       <ContentPanel>
-        <div id="scheduler-demand-phase" className="scheduler__anchor" />
+        <div id="scheduler-setup-phase" className="scheduler__anchor" />
         <div className="scheduler__section-header">
           <div>
             <span className="scheduler__step-eyebrow">Phase 1</span>
-            <h2>Define demand</h2>
-            <p>Choose the role you are planning for and set target coverage for each open day and shift.</p>
+            <h2>Set up and generate</h2>
+            <p>Choose the week and role, define the demand, then generate the first draft for this schedule.</p>
           </div>
         </div>
         <div className="scheduler__control-grid scheduler__control-grid--coverage">
           <div className="scheduler__control-card scheduler__control-card--coverage-role">
             <div className="scheduler__control-card-header">
               <div>
-                <h3>Planning Scope</h3>
+                <h3>Week & Role</h3>
                 <p className="scheduler__helper-copy scheduler__helper-copy--compact">
-                  Pick the role first. That controls who appears in the editor and how many targets need coverage.
+                  Start with the week and role. That determines which team members appear and which schedule you are editing.
                 </p>
               </div>
               <span className="scheduler__coverage-summary-chip">{totalRequiredSlots} required slots</span>
@@ -664,10 +634,10 @@ export const Scheduler = () => {
                 className="button button-outline"
                 onClick={handleCreateNewScheduleContext}
               >
-                Create new schedule context
+                Start over with a blank schedule
               </button>
             </div>
-            <dl className="scheduler__scope-summary" aria-label="Planning scope summary">
+            <dl className="scheduler__scope-summary" aria-label="Schedule setup summary">
               <div className="scheduler__scope-summary-item">
                 <dt>Week status</dt>
                 <dd>{hasWeekRange ? 'Selected' : 'Needed'}</dd>
@@ -700,15 +670,34 @@ export const Scheduler = () => {
                 {coveragePlanComplete ? 'Confirmed' : 'Pending'}
               </span>
             </div>
+            <div
+              className={`scheduler__checkpoint-banner ${coveragePlanComplete ? 'is-complete' : 'is-pending'}`.trim()}
+              aria-label="Coverage checkpoint"
+            >
+              <div>
+                <strong>{coveragePlanComplete ? 'Coverage confirmed' : 'Next required step: confirm coverage'}</strong>
+                <p>{coveragePlanNote}</p>
+              </div>
+              <button
+                type="button"
+                className={`button scheduler__coverage-plan-button${confirmCoverageIsNextAction ? ' is-next-action' : ''}`}
+                disabled={!canConfirmCoverage}
+                onClick={() => dispatch({ type: 'CONFIRM_COVERAGE_PLAN' })}
+              >
+                Confirm coverage plan
+              </button>
+            </div>
             <div className="scheduler__coverage-plan-status">
               <div className="scheduler__coverage-plan-meta" aria-label="Coverage target summary">
                 <span>{openDays.length} open days</span>
                 <span>{shiftTypes.length} shift {shiftTypes.length === 1 ? 'type' : 'types'}</span>
                 <span>{totalRequiredSlots} required slots</span>
               </div>
-              <p className="scheduler__coverage-plan-note">
-                {coveragePlanNote}
-              </p>
+              {!coverageSetupReady && (
+                <p className="scheduler__coverage-plan-note">
+                  Choose the week and role first, then enter target coverage for each day and shift.
+                </p>
+              )}
             </div>
             {openDays.length ? (
               shouldStackCoverageTargets ? (
@@ -726,7 +715,7 @@ export const Scheduler = () => {
                               value={schedule.requirements[day][shift]}
                               onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
                               className="scheduler__requirements-input"
-                              disabled={!hasRoleSelected}
+                              disabled={!coverageSetupReady}
                             />
                           </label>
                         ))}
@@ -763,7 +752,7 @@ export const Scheduler = () => {
                                 value={schedule.requirements[day][shift]}
                                 onChange={(e) => handleRequirementChange(day, shift, e.target.value)}
                                 className="scheduler__requirements-input"
-                                disabled={!hasRoleSelected}
+                                disabled={!coverageSetupReady}
                               />
                             </td>
                           ))}
@@ -776,34 +765,13 @@ export const Scheduler = () => {
             ) : (
               <p>No operating days are enabled. Update business hours in Settings to plan coverage.</p>
             )}
-            <div className="scheduler__coverage-plan-footer">
-              <button
-                type="button"
-                className="button scheduler__coverage-plan-button"
-                disabled={!canConfirmCoverage}
-                onClick={() => dispatch({ type: 'CONFIRM_COVERAGE_PLAN' })}
-              >
-                Confirm coverage plan
-              </button>
-            </div>
-          </div>
-        </div>
-      </ContentPanel>
-
-      <ContentPanel>
-        <div id="scheduler-build-phase" className="scheduler__anchor" />
-        <div className="scheduler__section-header">
-          <div>
-            <span className="scheduler__step-eyebrow">Phase 2</span>
-            <h2>Build draft</h2>
-            <p>Generate the first-pass schedule only after the week, role, and demand checkpoints are complete.</p>
           </div>
         </div>
         <div className="scheduler__control-grid scheduler__control-grid--build">
           <div className="scheduler__control-card scheduler__control-card--build-main">
             <div className="scheduler__control-card-header">
               <div>
-                <h3>Draft generator</h3>
+                <h3>Generate draft</h3>
                 <p className="scheduler__helper-copy scheduler__helper-copy--compact">
                   {currentRoleDraftExists
                     ? `Use ${buildActionLabel.toLowerCase()} when you want a fresh pass from the confirmed demand plan.`
@@ -812,24 +780,6 @@ export const Scheduler = () => {
               </div>
               <span className="scheduler__coverage-summary-chip">{hasRoleSelected ? selectedRole : 'Role required'}</span>
             </div>
-            <dl className="scheduler__scope-summary" aria-label="Draft generation summary">
-              <div className="scheduler__scope-summary-item">
-                <dt>Week ready</dt>
-                <dd>{hasWeekRange ? 'Selected' : 'Pending'}</dd>
-              </div>
-              <div className="scheduler__scope-summary-item">
-                <dt>Eligible team</dt>
-                <dd>{filteredEmployees.length} employees</dd>
-              </div>
-              <div className="scheduler__scope-summary-item">
-                <dt>Current draft</dt>
-                <dd>{scheduledTotals} shifts assigned</dd>
-              </div>
-              <div className="scheduler__scope-summary-item">
-                <dt>Demand ready</dt>
-                <dd>{coveragePlanComplete ? 'Confirmed' : 'Pending'}</dd>
-              </div>
-            </dl>
             <div className="scheduler__action-bar">
               <button
                 type="button"
@@ -860,7 +810,7 @@ export const Scheduler = () => {
                 <p>
                   {canGenerateDraft
                     ? `The next draft will be generated for ${selectedRole} across ${schedule.weekLabel}.`
-                    : nextGenerationCheckpoint?.pendingCopy}
+                    : buildPendingCheckpoints[0]?.pendingCopy ?? nextGenerationCheckpoint?.pendingCopy}
                 </p>
               </div>
             </div>
@@ -872,87 +822,105 @@ export const Scheduler = () => {
         <div id="scheduler-resolve-phase" className="scheduler__anchor" />
         <div className="scheduler__section-header">
           <div>
-            <span className="scheduler__step-eyebrow">Phase 3</span>
+            <span className="scheduler__step-eyebrow">Phase 2</span>
             <h2>Resolve issues</h2>
-            <p>{editorViewSummary[editorView]}</p>
+            <p>Start in the individual editor, then switch views only if you need a different way to finish the week.</p>
           </div>
         </div>
-        <div className="scheduler__review-grid">
-          <div className="scheduler__control-card">
-            <h3>Draft Status</h3>
-            <ul className="scheduler__review-list">
-              <li className="scheduler__review-list-item">
-                <strong>Assigned shifts</strong>
-                <span>{scheduledTotals}</span>
-              </li>
-              <li className="scheduler__review-list-item">
-                <strong>Open slots</strong>
-                <span>{totalOpenSlots}</span>
-              </li>
-              <li className="scheduler__review-list-item">
-                <strong>Shift-cap alerts</strong>
-                <span>{employeeLimitAlerts.length}</span>
-              </li>
-            </ul>
-          </div>
-          <div className="scheduler__control-card">
-            <h3>Coverage Gaps</h3>
-            {openShifts.length ? (
-              <ul className="scheduler__review-list">
-                {openShifts.map((shift) => (
-                  <li key={`${shift.day}-${shift.shift}`} className="scheduler__review-list-item">
-                    <strong>{shift.day} {shift.shift}</strong>
-                    <span>{shift.open} open</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="scheduler__empty-review">No coverage gaps for the selected role.</p>
-            )}
-          </div>
-          <div className="scheduler__control-card">
-            <h3>Schedule Alerts</h3>
-            {employeeLimitAlerts.length ? (
-              <ul className="scheduler__review-list">
-                {employeeLimitAlerts.map((employee) => (
-                  <li key={employee.id} className="scheduler__review-list-item">
-                    <strong>{employee.name}</strong>
-                    <span>{employeeAssignmentTotals[employee.id] ?? 0}/{employee.shiftsPerWeek} assigned</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="scheduler__empty-review">No shift-cap alerts in the current draft.</p>
-            )}
-          </div>
-        </div>
-        <div className="scheduler__resolve-editor">
-          <div className="scheduler__editor-toolbar">
-            <div className="scheduler__view-switcher" role="tablist" aria-label="Weekly editor views">
-              {editorViewOptions.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={editorView === option.id}
-                  aria-label={option.ariaLabel ?? option.label}
-                  className={`scheduler__view-switch ${editorView === option.id ? 'is-active' : ''}`.trim()}
-                  onClick={() => setEditorView(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
+        <div className="scheduler__resolve-shell">
+          <aside className="scheduler__resolve-sidebar">
+            <div className="scheduler__resolve-sticky">
+              <p className="scheduler__resolve-sidebar-note">These counts update as you edit the draft so you can keep blockers in view.</p>
+              <div className="scheduler__review-grid scheduler__review-grid--resolve">
+                <div className="scheduler__control-card">
+                  <h3>Draft Status</h3>
+                  <ul className="scheduler__review-list">
+                    <li className="scheduler__review-list-item">
+                      <strong>Assigned shifts</strong>
+                      <span>{scheduledTotals}</span>
+                    </li>
+                    <li className="scheduler__review-list-item">
+                      <strong>Open slots</strong>
+                      <span>{totalOpenSlots}</span>
+                    </li>
+                    <li className="scheduler__review-list-item">
+                      <strong>Shift-cap alerts</strong>
+                      <span>{employeeLimitAlerts.length}</span>
+                    </li>
+                  </ul>
+                </div>
+                <div className="scheduler__control-card">
+                  <h3>Coverage Gaps</h3>
+                  {openShifts.length ? (
+                    <ul className="scheduler__review-list">
+                      {openShifts.map((shift) => (
+                        <li key={`${shift.day}-${shift.shift}`} className="scheduler__review-list-item">
+                          <strong>{shift.day} {shift.shift}</strong>
+                          <span>{shift.open} open</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="scheduler__empty-review">No coverage gaps for the selected role.</p>
+                  )}
+                </div>
+                <div className="scheduler__control-card">
+                  <h3>Schedule Alerts</h3>
+                  {employeeLimitAlerts.length ? (
+                    <ul className="scheduler__review-list">
+                      {employeeLimitAlerts.map((employee) => (
+                        <li key={employee.id} className="scheduler__review-list-item">
+                          <strong>{employee.name}</strong>
+                          <span>{employeeAssignmentTotals[employee.id] ?? 0}/{employee.shiftsPerWeek} assigned</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="scheduler__empty-review">No shift-cap alerts in the current draft.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </aside>
+          <div className="scheduler__resolve-main">
+            <div className="scheduler__resolve-editor">
+              <div className="scheduler__editor-toolbar">
+                <div className="scheduler__editor-toolbar-copy">
+                  <strong>Recommended: Individual view</strong>
+                  <p className="scheduler__editor-toolbar-note">
+                    {editorView === 'individual'
+                      ? editorViewSummary.individual
+                      : `${editorViewSummary[editorView]} Start in Individual unless you need a different pass.`}
+                  </p>
+                </div>
+                <div className="scheduler__view-switcher" role="tablist" aria-label="Weekly editor views">
+                  {editorViewOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={editorView === option.id}
+                      aria-label={option.ariaLabel ?? option.label}
+                      className={`scheduler__view-switch ${editorView === option.id ? 'is-active' : ''} ${option.recommended ? 'is-recommended' : ''}`.trim()}
+                      onClick={() => setEditorView(option.id)}
+                    >
+                      {option.label}
+                      {option.recommended && <span className="scheduler__view-switch-badge">Default</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {openDays.length === 0 ? (
+                <p>No operating days are enabled. Update business hours in Settings to build the weekly schedule.</p>
+              ) : !hasWeekRange || !hasRoleSelected ? (
+                <p>Choose the week and role in Set up and generate before editing the schedule.</p>
+              ) : filteredEmployees.length ? (
+                renderEditor()
+              ) : (
+                <p>No active employees are available for the selected role yet. Add or reactivate team members in Team.</p>
+              )}
             </div>
           </div>
-          {openDays.length === 0 ? (
-            <p>No operating days are enabled. Update business hours in Settings to build the weekly schedule.</p>
-          ) : !hasWeekRange || !hasRoleSelected ? (
-            <p>Choose the week and role in Phase 1 before editing the schedule.</p>
-          ) : filteredEmployees.length ? (
-            renderEditor()
-          ) : (
-            <p>No active employees are available for the selected role yet. Add or reactivate team members in Team.</p>
-          )}
         </div>
       </ContentPanel>
 
@@ -960,17 +928,20 @@ export const Scheduler = () => {
         <div id="scheduler-publish-phase" className="scheduler__anchor" />
         <div className="scheduler__section-header">
           <div>
-            <span className="scheduler__step-eyebrow">Phase 4</span>
+            <span className="scheduler__step-eyebrow">Phase 3</span>
             <h2>Publish Schedule</h2>
-            <p>Confirm notes and publish once the current draft is ready for the team.</p>
+            <p>Save the current draft first, then publish once the saved version is ready for the team.</p>
           </div>
         </div>
-        <div className="scheduler__review-grid">
-          <div className="scheduler__control-card">
-            <h3>Publish Readiness</h3>
-            <div className={`scheduler__publish-readiness ${canPublish ? 'is-ready' : 'is-blocked'}`.trim()}>
-              <strong>{canPublish ? 'Ready to publish active week' : 'Active week needs attention'}</strong>
-              <p>{publishSummary}</p>
+        <div
+          className={`scheduler__publish-bar ${canPublish ? 'is-ready' : 'is-blocked'}`.trim()}
+          aria-label="Publish bar"
+        >
+          <div className="scheduler__publish-bar-status">
+            <span className={`scheduler__publish-state ${saveStepComplete ? 'is-saved' : 'is-pending'}`.trim()}>{publishStateLabel}</span>
+            <strong>{publishBarTitle}</strong>
+            <p>{publishSummary}</p>
+            <div className="scheduler__publish-meta">
               {schedule.lastSavedAt && (
                 <small>Last saved {formatLastSavedAt(schedule.lastSavedAt)}</small>
               )}
@@ -982,35 +953,72 @@ export const Scheduler = () => {
               )}
             </div>
           </div>
-          <div className="scheduler__control-card">
-            <h3>Manager Notes</h3>
+          <div className="scheduler__publish-bar-notes">
+            <label htmlFor="scheduler-notes" className="scheduler__label">Manager Notes</label>
             <textarea
+              id="scheduler-notes"
               className="scheduler__notes"
               value={schedule.notes}
               onChange={(e) => dispatch({ type: 'UPDATE_SCHEDULE_NOTES', payload: e.target.value })}
               placeholder="Schedule notes"
             />
           </div>
-        </div>
-        <div className="scheduler__review-actions">
-          <button
-            type="button"
-            className="button button-outline"
-            disabled={!canSaveDraft}
-            onClick={() => dispatch({ type: 'SAVE_SCHEDULE_DRAFT' })}
-          >
-            Save draft
-          </button>
-          <button
-            type="button"
-            className="button"
-            disabled={!canPublish}
-            onClick={() => dispatch({ type: 'PUBLISH_SCHEDULE' })}
-          >
-            Publish
-          </button>
+          <div className="scheduler__publish-bar-actions">
+            <button
+              type="button"
+              className={`button${saveDraftIsNextAction ? ' is-next-action' : ' button-outline'}`}
+              disabled={!canSaveDraft}
+              onClick={() => dispatch({ type: 'SAVE_SCHEDULE_DRAFT' })}
+            >
+              Save draft
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={!canPublish}
+              onClick={() => dispatch({ type: 'PUBLISH_SCHEDULE' })}
+            >
+              Publish
+            </button>
+            {schedule.status === 'published' && (
+              <a href={shiftsViewLink} className="scheduler__shifts-link">
+                View published schedule in Shifts
+              </a>
+            )}
+            <p className="scheduler__publish-bar-note">
+              Publish unlocks only after the latest draft is saved and no coverage or shift-cap blockers remain.
+            </p>
+          </div>
         </div>
       </ContentPanel>
+
+      {pendingContextSwitch && (
+        <div className="scheduler__modal-overlay" role="dialog" aria-modal="true" aria-labelledby="context-switch-modal-title">
+          <div className="scheduler__modal">
+            <h2 id="context-switch-modal-title">Switch schedule?</h2>
+            <p>You have unsaved work on the current schedule. Switching the week or role will move you to a different schedule — your unsaved work will not carry over.</p>
+            <div className="scheduler__modal-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={() => setPendingContextSwitch(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  pendingContextSwitch.onConfirm();
+                  setPendingContextSwitch(null);
+                }}
+              >
+                Switch schedule
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
