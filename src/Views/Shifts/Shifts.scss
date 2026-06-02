@@ -271,6 +271,28 @@
     }
   }
 
+  &__finder-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h3 {
+      font-size: 1rem;
+      color: #14213d;
+    }
+
+    p {
+      color: #475569;
+      font-size: 0.88rem;
+    }
+  }
+
   &__scheduler-link {
     flex: 0 0 auto;
     display: inline-flex;
@@ -517,6 +539,18 @@
       color: #475569;
     }
   }
+
+  &__issue-group + &__issue-group {
+    margin-top: 0.85rem;
+  }
+
+  &__issue-group {
+    h4 {
+      margin: 0 0 0.3rem;
+      font-size: 0.88rem;
+      color: #14213d;
+    }
+  }
 }
 
 @media (max-width: 900px) {
@@ -568,6 +602,11 @@
     &__published-note {
       flex-direction: column;
       align-items: stretch;
+    }
+
+    &__finder-header {
+      align-items: flex-start;
+      flex-direction: column;
     }
 
     &__scheduler-link {

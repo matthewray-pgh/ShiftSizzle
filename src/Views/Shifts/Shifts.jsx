@@ -385,6 +385,10 @@ export const Shifts = () => {
 
   const schedulerLink = `/scheduler?weekStart=${encodeURIComponent(selectedEntry?.startDate ?? '')}&role=${encodeURIComponent(selectedEntry?.selectedRole ?? '')}`;
   const hasActiveFilters = filterRole !== 'all' || filterRange !== 'all';
+  const activeScheduleLabel = selectedEntry?.weekLabel || `${selectedEntry?.startDate || 'Unknown'} - ${selectedEntry?.endDate || 'Unknown'}`;
+  const pageSubhead = selectedEntry
+    ? `${selectedEntry.selectedRole || 'Team'} coverage for ${activeScheduleLabel}.`
+    : 'Review the schedule your team should follow.';
 
   const resetFilters = () => {
     setFilterRange('all');
@@ -442,7 +446,7 @@ export const Shifts = () => {
               <div className="shifts__page-copy">
                 <span className="shifts__page-eyebrow">Shifts review</span>
                 <h2>Published schedule view</h2>
-                <p className="shifts__subhead">Filter by date range first, then role to narrow down published schedules.</p>
+                <p className="shifts__subhead">Select a date range and role to find published schedules.</p>
               </div>
               <div className="shifts__status shifts__status--published">published</div>
             </div>
@@ -470,7 +474,6 @@ export const Shifts = () => {
               <h2>Published schedule view</h2>
               <p className="shifts__subhead">Publish a schedule in Scheduler to review assignments, coverage, and unresolved issues here.</p>
             </div>
-            <div className="shifts__status shifts__status--draft">draft</div>
           </div>
         </ContentPanel>
       </div>
@@ -484,10 +487,42 @@ export const Shifts = () => {
           <div className="shifts__page-copy">
             <span className="shifts__page-eyebrow">Shifts review</span>
             <h2>{selectedEntry.weekLabel || 'Published schedule'}</h2>
-            <p className="shifts__subhead">Select date range first, then role, then choose a published schedule to inspect below.</p>
+            <p className="shifts__subhead">{pageSubhead}</p>
             <p className="shifts__publish-meta">Published {formatPublishedAt(selectedEntry.publishedAt)}</p>
           </div>
           <div className="shifts__status shifts__status--published">published</div>
+        </div>
+        <div className="shifts__review-grid">
+          <article className="shifts__review-card" aria-label="Assignment review summary">
+            <h3>Assignments</h3>
+            <p>{selectedReview.metrics.assignedSlots} assigned slots across {selectedReview.metrics.roleEmployeeCount} team members.</p>
+          </article>
+          <article className="shifts__review-card" aria-label="Coverage review summary">
+            <h3>Coverage</h3>
+            <p>{selectedReview.metrics.requiredSlots} required slots for the week.</p>
+            <p>{selectedReview.metrics.openSlots} unfilled slots after publish.</p>
+          </article>
+          <article className="shifts__review-card" aria-label="Unresolved issues summary">
+            <h3>Unresolved issues</h3>
+            <p>{selectedReview.coverageGaps.length} coverage gap {selectedReview.coverageGaps.length === 1 ? 'issue' : 'issues'}.</p>
+            <p>{selectedReview.shiftCapAlerts.length} shift-cap {selectedReview.shiftCapAlerts.length === 1 ? 'alert' : 'alerts'}.</p>
+          </article>
+        </div>
+        <section className="shifts__published-note" aria-label="Published note panel">
+          <div>
+            <h3>Publish note</h3>
+            <p>{selectedEntry.notes?.trim() || 'No publish notes were recorded for this schedule.'}</p>
+          </div>
+          <a className="shifts__scheduler-link" href={schedulerLink}>Open in Scheduler</a>
+        </section>
+      </ContentPanel>
+
+      <ContentPanel>
+        <div className="shifts__finder-header">
+          <div>
+            <h3>Find another published schedule</h3>
+            <p>Use filters when you need to switch weeks or roles.</p>
+          </div>
         </div>
         {filterControls}
         {hasActiveFilters && (
@@ -524,13 +559,52 @@ export const Shifts = () => {
             ))}
           </div>
         </section>
-        <section className="shifts__published-note" aria-label="Published note panel">
-          <div>
-            <h3>Publish note</h3>
-            <p>{selectedEntry.notes?.trim() || 'No publish notes were recorded for this schedule.'}</p>
+      </ContentPanel>
+
+      <ContentPanel>
+        <h3 className="shifts__section-title">Day coverage</h3>
+        <p className="shifts__section-copy">Check required versus assigned coverage before drilling into the assignment grid.</p>
+        <div className="shifts__day-coverage" aria-label="Published day coverage">
+          {dailyCoverageRows.map((row) => (
+            <article key={row.day} className="shifts__day-coverage-item">
+              <h4>{row.day}</h4>
+              <p>{row.assigned} assigned / {row.required} required</p>
+              <span className={`shifts__day-coverage-status ${row.open > 0 ? 'is-open' : 'is-filled'}`}>
+                {row.open > 0 ? `${row.open} open` : 'Filled'}
+              </span>
+            </article>
+          ))}
+        </div>
+
+        {(selectedReview.coverageGaps.length > 0 || selectedReview.shiftCapAlerts.length > 0) && (
+          <div className="shifts__issues" aria-label="Published unresolved issues details">
+            <h3>Issue details</h3>
+            {selectedReview.coverageGaps.length > 0 && (
+              <div className="shifts__issue-group">
+                <h4>Coverage gaps</h4>
+                <ul>
+                  {selectedReview.coverageGaps.map((gap) => (
+                    <li key={`gap-${gap.day}-${gap.shift}`}>
+                      Coverage gap: {gap.day} {gap.shift} ({gap.open} open)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {selectedReview.shiftCapAlerts.length > 0 && (
+              <div className="shifts__issue-group">
+                <h4>Shift-cap alerts</h4>
+                <ul>
+                  {selectedReview.shiftCapAlerts.map((alert) => (
+                    <li key={`alert-${alert.employeeId}`}>
+                      Shift-cap alert: {alert.employeeName} assigned {alert.assigned} shifts (limit {alert.maxShifts})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-          <a className="shifts__scheduler-link" href={schedulerLink}>Open in Scheduler</a>
-        </section>
+        )}
       </ContentPanel>
 
       <ContentPanel>
@@ -539,7 +613,7 @@ export const Shifts = () => {
         <div className="shifts__assignment-controls">
           <p className="shifts__assignment-context" aria-label="Selected assignment schedule context">
             <strong>{selectedEntry.selectedRole || 'Role not set'}</strong>
-            <span>{selectedEntry.weekLabel || `${selectedEntry.startDate || 'Unknown'} - ${selectedEntry.endDate || 'Unknown'}`}</span>
+            <span>{activeScheduleLabel}</span>
           </p>
 
           {assignmentRows.length > 0 && (
@@ -655,61 +729,6 @@ export const Shifts = () => {
         ) : (
           <p>No published assignments for this role and week yet.</p>
         )}
-
-        <div className="shifts__day-coverage" aria-label="Published day coverage">
-          {dailyCoverageRows.map((row) => (
-            <article key={row.day} className="shifts__day-coverage-item">
-              <h4>{row.day}</h4>
-              <p>{row.assigned} assigned / {row.required} required</p>
-              <span className={`shifts__day-coverage-status ${row.open > 0 ? 'is-open' : 'is-filled'}`}>
-                {row.open > 0 ? `${row.open} open` : 'Filled'}
-              </span>
-            </article>
-          ))}
-        </div>
-
-        {(selectedReview.coverageGaps.length > 0 || selectedReview.shiftCapAlerts.length > 0) && (
-          <div className="shifts__issues" aria-label="Published unresolved issues details">
-            <h3>Issue details</h3>
-            {selectedReview.coverageGaps.length > 0 && (
-              <ul>
-                {selectedReview.coverageGaps.map((gap) => (
-                  <li key={`gap-${gap.day}-${gap.shift}`}>
-                    Coverage gap: {gap.day} {gap.shift} ({gap.open} open)
-                  </li>
-                ))}
-              </ul>
-            )}
-            {selectedReview.shiftCapAlerts.length > 0 && (
-              <ul>
-                {selectedReview.shiftCapAlerts.map((alert) => (
-                  <li key={`alert-${alert.employeeId}`}>
-                    Shift-cap alert: {alert.employeeName} assigned {alert.assigned} shifts (limit {alert.maxShifts})
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </ContentPanel>
-
-      <ContentPanel>
-        <div className="shifts__review-grid">
-          <article className="shifts__review-card" aria-label="Assignment review summary">
-            <h3>Assignments</h3>
-            <p>{selectedReview.metrics.assignedSlots} assigned slots across {selectedReview.metrics.roleEmployeeCount} team members.</p>
-          </article>
-          <article className="shifts__review-card" aria-label="Coverage review summary">
-            <h3>Coverage</h3>
-            <p>{selectedReview.metrics.requiredSlots} required slots for the week.</p>
-            <p>{selectedReview.metrics.openSlots} unfilled slots after publish.</p>
-          </article>
-          <article className="shifts__review-card" aria-label="Unresolved issues summary">
-            <h3>Unresolved issues</h3>
-            <p>{selectedReview.coverageGaps.length} coverage gap {selectedReview.coverageGaps.length === 1 ? 'issue' : 'issues'}.</p>
-            <p>{selectedReview.shiftCapAlerts.length} shift-cap {selectedReview.shiftCapAlerts.length === 1 ? 'alert' : 'alerts'}.</p>
-          </article>
-        </div>
       </ContentPanel>
     </div>
   );
