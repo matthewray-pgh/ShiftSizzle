@@ -12,7 +12,7 @@ import './Settings.scss';
 export const Settings = () => {
   const { state, dispatch } = useAppState();
   const [form, setForm] = useState(state.settings);
-  const [savedSection, setSavedSection] = useState('');
+  const [justSaved, setJustSaved] = useState(false);
   const [newShiftType, setNewShiftType] = useState('');
   const [newTeamRole, setNewTeamRole] = useState('');
   const baseTeamRoles = Object.values(BASE_TEAM_ROLES);
@@ -33,9 +33,11 @@ export const Settings = () => {
   const rolesDirty = JSON.stringify(form.additionalTeamRoles) !== JSON.stringify(state.settings.additionalTeamRoles);
   const schedulingDirty = form.weekStartsOn !== state.settings.weekStartsOn;
   const hoursDirty = JSON.stringify(form.operatingHours) !== JSON.stringify(state.settings.operatingHours);
+  const isDirty = workspaceDirty || shiftsDirty || rolesDirty || schedulingDirty || hoursDirty;
+  const canSave = isDirty && !(schedulingDirty && !form.weekStartsOn);
 
   const updateForm = (field, value) => {
-    setSavedSection('');
+    setJustSaved(false);
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
   };
 
@@ -87,10 +89,20 @@ export const Settings = () => {
     updateOperatingHours(day, 'isOpen', !form.operatingHours[day].isOpen);
   };
 
-  const handleSaveSection = (sectionName, payload) => (event) => {
+  const handleSaveAll = (event) => {
     event.preventDefault();
-    dispatch({ type: 'UPDATE_SETTINGS', payload });
-    setSavedSection(sectionName);
+
+    if (!canSave) {
+      return;
+    }
+
+    dispatch({ type: 'UPDATE_SETTINGS', payload: form });
+    setJustSaved(true);
+  };
+
+  const handleDiscardAll = () => {
+    setForm(state.settings);
+    setJustSaved(false);
   };
 
   return (
@@ -103,16 +115,8 @@ export const Settings = () => {
             <p>Update the shared configuration that shapes staffing, roles, and operating hours across the app.</p>
           </div>
         </div>
-        <div className="settings__form">
-          <form
-            className="settings__group settings__section-form"
-            aria-label="Workspace details settings"
-            onSubmit={handleSaveSection('workspace', {
-              locationName: form.locationName,
-              currentUserName: form.currentUserName,
-              schedulerName: form.schedulerName,
-            })}
-          >
+        <form className="settings__form" aria-label="Workspace settings" onSubmit={handleSaveAll}>
+          <div className="settings__group" aria-label="Workspace details settings">
             <div className="settings__group-copy">
                 <div className="settings__group-heading">
                   <h3>Workspace Details</h3>
@@ -123,22 +127,9 @@ export const Settings = () => {
             <InputField label="Location Name" name="locationName" value={form.locationName} onChange={(value) => updateForm('locationName', value)} />
             <InputField label="Current User" name="currentUserName" value={form.currentUserName} onChange={(value) => updateForm('currentUserName', value)} />
             <InputField label="Scheduler Name" name="schedulerName" value={form.schedulerName} onChange={(value) => updateForm('schedulerName', value)} />
-            <div className="settings__actions">
-              <Button type="submit" className="settings__section-button" disabled={!workspaceDirty}>
-                <span className="settings__action-icon" aria-hidden="true">
-                  <i className="fas fa-building" />
-                </span>
-                Save Workspace Details
-              </Button>
-              {savedSection === 'workspace' && <p className="settings__saved">Workspace details saved locally for this device.</p>}
-            </div>
-          </form>
+          </div>
 
-          <form
-            className="settings__group settings__section-form"
-            aria-label="Shift type settings"
-            onSubmit={handleSaveSection('shifts', { shiftTypes: form.shiftTypes })}
-          >
+          <div className="settings__group" aria-label="Shift type settings">
             <div className="settings__group-copy">
               <div className="settings__group-heading">
                 <h3>Shift Types</h3>
@@ -165,22 +156,9 @@ export const Settings = () => {
                 Add Shift
               </Button>
             </div>
-            <div className="settings__actions">
-              <Button type="submit" className="settings__section-button" disabled={!shiftsDirty}>
-                <span className="settings__action-icon" aria-hidden="true">
-                  <i className="fas fa-layer-group" />
-                </span>
-                Save Shift Types
-              </Button>
-              {savedSection === 'shifts' && <p className="settings__saved">Shift types saved locally for this device.</p>}
-            </div>
-          </form>
+          </div>
 
-          <form
-            className="settings__group settings__section-form"
-            aria-label="Team role settings"
-            onSubmit={handleSaveSection('roles', { additionalTeamRoles: form.additionalTeamRoles })}
-          >
+          <div className="settings__group" aria-label="Team role settings">
             <div className="settings__group-copy">
               <div className="settings__group-heading">
                 <h3>Team Roles</h3>
@@ -210,22 +188,9 @@ export const Settings = () => {
                 Add Role
               </Button>
             </div>
-            <div className="settings__actions">
-              <Button type="submit" className="settings__section-button" disabled={!rolesDirty}>
-                <span className="settings__action-icon" aria-hidden="true">
-                  <i className="fas fa-user-tag" />
-                </span>
-                Save Team Roles
-              </Button>
-              {savedSection === 'roles' && <p className="settings__saved">Team roles saved locally for this device.</p>}
-            </div>
-          </form>
+          </div>
 
-          <form
-            className="settings__group settings__section-form"
-            aria-label="Scheduling week settings"
-            onSubmit={handleSaveSection('schedule-week', { weekStartsOn: form.weekStartsOn })}
-          >
+          <div className="settings__group" aria-label="Scheduling week settings">
             <div className="settings__group-copy">
               <div className="settings__group-heading">
                 <h3>Scheduling Week</h3>
@@ -245,6 +210,9 @@ export const Settings = () => {
                 <option key={day} value={day}>{day}</option>
               ))}
             </select>
+            {schedulingDirty && !form.weekStartsOn && (
+              <p className="settings__field-warning">Select a day to save this change.</p>
+            )}
             <div className="settings__week-preview" aria-label="Scheduling week preview">
               <div className="settings__week-preview-item">
                 <span>Week start</span>
@@ -255,22 +223,9 @@ export const Settings = () => {
                 <strong>{derivedWeekEnd || 'Not set'}</strong>
               </div>
             </div>
-            <div className="settings__actions">
-              <Button type="submit" className="settings__section-button" disabled={!schedulingDirty || !form.weekStartsOn}>
-                <span className="settings__action-icon" aria-hidden="true">
-                  <i className="fas fa-calendar-week" />
-                </span>
-                Save Scheduling Week
-              </Button>
-              {savedSection === 'schedule-week' && <p className="settings__saved">Scheduling week settings saved locally for this device.</p>}
-            </div>
-          </form>
+          </div>
 
-          <form
-            className="settings__group settings__section-form"
-            aria-label="Operating hours settings"
-            onSubmit={handleSaveSection('hours', { operatingHours: form.operatingHours })}
-          >
+          <div className="settings__group" aria-label="Operating hours settings">
             <div className="settings__group-copy">
               <div className="settings__group-heading">
                 <h3>Business Hours</h3>
@@ -329,17 +284,31 @@ export const Settings = () => {
                 );
               })}
             </div>
-            <div className="settings__actions">
-              <Button type="submit" className="settings__section-button settings__submit-button" disabled={!hoursDirty}>
-                <span className="settings__action-icon" aria-hidden="true">
-                  <i className="fas fa-clock" />
-                </span>
-                Save Business Hours
-              </Button>
-              {savedSection === 'hours' && <p className="settings__saved">Business hours saved locally for this device.</p>}
+          </div>
+
+          <div className="settings__save-bar" role="status">
+            <div className="settings__save-bar-copy">
+              {isDirty ? (
+                <span className="settings__dirty-indicator">Unsaved changes</span>
+              ) : justSaved ? (
+                <span className="settings__saved">All changes saved</span>
+              ) : (
+                <span className="settings__save-bar-hint">No changes to save</span>
+              )}
             </div>
-          </form>
-        </div>
+            <div className="settings__save-bar-actions">
+              <button type="button" className="button-outline" onClick={handleDiscardAll} disabled={!isDirty}>
+                Discard changes
+              </button>
+              <Button type="submit" className="settings__save-bar-button" disabled={!canSave}>
+                <span className="settings__action-icon" aria-hidden="true">
+                  <i className="fas fa-floppy-disk" />
+                </span>
+                Save changes
+              </Button>
+            </div>
+          </div>
+        </form>
       </ContentPanel>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 
-import { ContentPanel } from '../../Components';
+import { ContentPanel, StatusBadge } from '../../Components';
 import { DAYS, getShiftTypes, useAppState } from '../../state/AppState';
 
 import './Dashboard.scss';
@@ -122,9 +122,7 @@ export const Dashboard = () => {
               {schedule.status === 'published' ? 'Published' : 'Draft'} schedule for {schedule.weekLabel} focused on {schedule.selectedRole} coverage.
             </p>
           </div>
-          <div className={`dashboard__status-pill dashboard__status-pill--${schedule.status === 'published' ? 'published' : 'draft'}`}>
-            {schedule.status}
-          </div>
+          <StatusBadge status={schedule.status === 'published' ? 'published' : 'draft'} />
         </div>
         <div className="dashboard__card-grid">
           {dashboardCards.map((card) => (

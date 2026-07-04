@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import './Scheduler.scss';
 
-import { ContentPanel } from '../../Components';
+import { ContentPanel, StatusBadge } from '../../Components';
 import { DAYS, getOpenDays, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
 
 const formatShiftsPerWeek = (shiftsPerWeek = 0) => `${shiftsPerWeek} ${shiftsPerWeek === 1 ? 'shift' : 'shifts'}/week`;
@@ -35,6 +35,8 @@ export const Scheduler = () => {
   const { employees, schedule, settings } = state;
   const [editorView, setEditorView] = useState(getInitialEditorView);
   const [pendingContextSwitch, setPendingContextSwitch] = useState(null);
+  const [isEditingWeekStart, setIsEditingWeekStart] = useState(false);
+  const [manualExpandedPhase, setManualExpandedPhase] = useState(null);
   const openDays = getOpenDays(settings);
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
@@ -53,11 +55,15 @@ export const Scheduler = () => {
       return;
     }
 
-    if (linkedWeekStart && linkedWeekStart !== schedule.startDate) {
-      dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: linkedWeekStart });
-    }
+    const linkedRoleIsValid = linkedRole && teamRoles.includes(linkedRole);
 
-    if (linkedRole && teamRoles.includes(linkedRole) && linkedRole !== schedule.selectedRole) {
+    if (linkedWeekStart && linkedRoleIsValid) {
+      if (linkedWeekStart !== schedule.startDate || linkedRole !== schedule.selectedRole) {
+        dispatch({ type: 'SELECT_SCHEDULE_CONTEXT', payload: { startDate: linkedWeekStart, role: linkedRole } });
+      }
+    } else if (linkedWeekStart && linkedWeekStart !== schedule.startDate) {
+      dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: linkedWeekStart });
+    } else if (linkedRoleIsValid && linkedRole !== schedule.selectedRole) {
       dispatch({ type: 'SET_SELECTED_ROLE', payload: linkedRole });
     }
 
@@ -89,7 +95,6 @@ export const Scheduler = () => {
     const hasDraftSignals = Boolean(
       hasWeekRange
       || hasRoleSelected
-      || coveragePlanComplete
       || totalRequiredSlots > 0
       || scheduledTotals > 0
       || schedule.notes?.trim()
@@ -125,7 +130,14 @@ export const Scheduler = () => {
   };
 
   const handleCreateNewScheduleContext = () => {
-    guardContextSwitch(() => dispatch({ type: 'START_NEW_SCHEDULE_CONTEXT' }));
+    dispatch({ type: 'START_NEW_SCHEDULE_CONTEXT' });
+  };
+
+  const handleWeekStartsOnChange = (e) => {
+    const nextDay = e.target.value;
+
+    dispatch({ type: 'UPDATE_SETTINGS', payload: { weekStartsOn: nextDay } });
+    setIsEditingWeekStart(false);
   };
 
   const filteredEmployees = useMemo(
@@ -190,7 +202,6 @@ export const Scheduler = () => {
     [openDays, schedule.requirements, shiftTypes]
   );
 
-  const coveragePlanComplete = Boolean(schedule.coveragePlanReviewed);
   const hasUnsavedChanges = Boolean(schedule.hasUnsavedChanges);
   const hasWeekSettings = Boolean(configuredWeekStart);
   const hasWeekRange = Boolean(schedule.startDate && schedule.endDate && schedule.weekLabel);
@@ -198,16 +209,13 @@ export const Scheduler = () => {
   const hasCoverageTargets = totalRequiredSlots > 0;
   const currentRoleDraftExists = scheduledTotals > 0;
   const issuesResolved = currentRoleDraftExists && totalOpenSlots === 0 && employeeLimitAlerts.length === 0;
-  const canConfirmCoverage = hasWeekRange && hasRoleSelected && hasCoverageTargets;
   const canGenerateDraft = hasWeekRange
     && hasRoleSelected
     && hasCoverageTargets
-    && coveragePlanComplete
     && filteredEmployees.length > 0;
 
   const publishReady = hasWeekRange
     && hasRoleSelected
-    && coveragePlanComplete
     && totalOpenSlots === 0
     && employeeLimitAlerts.length === 0
     && filteredEmployees.length > 0
@@ -215,24 +223,22 @@ export const Scheduler = () => {
   const canSaveDraft = hasWeekRange
     && hasRoleSelected
     && hasUnsavedChanges
-    && (hasCoverageTargets || currentRoleDraftExists || coveragePlanComplete || Boolean(schedule.notes.trim()));
+    && (hasCoverageTargets || currentRoleDraftExists || Boolean(schedule.notes.trim()));
   const canPublish = publishReady && !hasUnsavedChanges && Boolean(schedule.lastSavedAt);
 
-  const confirmCoverageIsNextAction = canConfirmCoverage && !coveragePlanComplete;
   const saveDraftIsNextAction = Boolean(publishReady && hasUnsavedChanges);
   const coverageSetupReady = hasWeekRange && hasRoleSelected;
 
   const buildActionLabel = currentRoleDraftExists ? 'Rebuild draft' : 'Generate draft';
-  const resetDraftLabel = currentRoleDraftExists ? 'Clear current role draft' : 'Reset to blank draft';
 
   const scheduleStatusLabel = schedule.status === 'published' ? 'Published schedule' : 'Draft schedule';
-  const shiftsViewLink = hasWeekRange && hasRoleSelected
-    ? `/shifts?range=${encodeURIComponent(`${schedule.startDate}__${schedule.endDate}`)}&role=${encodeURIComponent(schedule.selectedRole)}`
-    : '/shifts';
+  const historyViewLink = hasWeekRange && hasRoleSelected
+    ? `/history?range=${encodeURIComponent(`${schedule.startDate}__${schedule.endDate}`)}&role=${encodeURIComponent(schedule.selectedRole)}`
+    : '/history';
 
   const heroSubhead = hasWeekRange && hasRoleSelected
     ? `Build and publish the active ${schedule.weekLabel} staffing plan for ${selectedRole} coverage.`
-    : 'Choose a week, select a role, and confirm demand before generating a schedule.';
+    : 'Choose a week, select a role, and set demand before generating a schedule.';
 
   const editingContextLine = hasWeekRange && hasRoleSelected
     ? `Active: ${selectedRole} \u00b7 ${schedule.weekLabel}`
@@ -243,22 +249,12 @@ export const Scheduler = () => {
         : 'No schedule started yet';
 
   const weekSelectionNote = !hasWeekSettings
-    ? 'Set the workspace week start in Settings before choosing a week to generate.'
+    ? 'Choose which day your schedules start on, then pick a start date below.'
     : schedule.startDate && !hasWeekRange
       ? `Pick a ${configuredWeekStart} so the generated week matches the workspace schedule cycle.`
       : hasWeekRange
         ? `${configuredWeekStart} to ${configuredWeekEnd}. ${schedule.weekLabel}.`
         : `Choose a ${configuredWeekStart} start date for the schedule you want to generate.`;
-
-  const coveragePlanNote = !hasWeekRange
-    ? 'Choose a week before confirming demand.'
-    : !hasRoleSelected
-      ? 'Select a role before confirming demand.'
-      : !hasCoverageTargets
-        ? 'Add at least one required slot before confirming demand.'
-        : coveragePlanComplete
-          ? `Confirmed for ${selectedRole}. Any target change will reset this checkpoint.`
-          : 'Review the targets, then confirm the plan.';
 
   const publishSummary = canPublish
     ? 'Coverage is filled and the saved draft is ready to publish.'
@@ -266,8 +262,8 @@ export const Scheduler = () => {
       ? 'Choose the week you want to generate before publishing.'
       : !hasRoleSelected
         ? 'Select the role you are publishing before continuing.'
-        : !coveragePlanComplete
-          ? 'Confirm the coverage plan before publishing.'
+        : !hasCoverageTargets
+          ? 'Add coverage targets before publishing.'
           : hasUnsavedChanges
             ? 'Save the current draft before publishing.'
           : totalOpenSlots > 0
@@ -279,12 +275,12 @@ export const Scheduler = () => {
                 : 'Add at least one assignment before publishing.';
 
   const headerStatusSummary = hasWeekRange && hasRoleSelected
-    ? !coveragePlanComplete
-      ? 'Confirm demand before generating the first draft.'
+    ? !hasCoverageTargets
+      ? 'Add coverage targets before generating the first draft.'
       : !currentRoleDraftExists
         ? 'Generate the first draft for this week and role.'
         : canPublish
-          ? 'Ready to publish or review in Shifts.'
+          ? 'Ready to publish or review in History.'
           : publishSummary
     : 'Set the week and role to start planning.';
 
@@ -294,8 +290,8 @@ export const Scheduler = () => {
       ? 'Choose week.'
       : !hasRoleSelected
         ? 'Select role.'
-        : !coveragePlanComplete
-          ? 'Confirm demand.'
+        : !hasCoverageTargets
+          ? 'Add demand.'
           : hasUnsavedChanges
             ? 'Save draft.'
           : totalOpenSlots > 0
@@ -326,7 +322,7 @@ export const Scheduler = () => {
     {
       label: 'Week selected',
       complete: hasWeekRange,
-      pendingCopy: hasWeekSettings ? `Choose a ${configuredWeekStart} start date.` : 'Set the workspace week start in Settings.',
+      pendingCopy: hasWeekSettings ? `Choose a ${configuredWeekStart} start date.` : 'Choose which day your schedules start on.',
     },
     {
       label: 'Role selected',
@@ -337,11 +333,6 @@ export const Scheduler = () => {
       label: 'Demand added',
       complete: hasCoverageTargets,
       pendingCopy: 'Add at least one required slot to define demand.',
-    },
-    {
-      label: 'Demand confirmed',
-      complete: coveragePlanComplete,
-      pendingCopy: 'Confirm the coverage plan before generating the draft.',
     },
     {
       label: 'Staff available',
@@ -362,9 +353,7 @@ export const Scheduler = () => {
         ? `${scheduledTotals} ${scheduledTotals === 1 ? 'shift' : 'shifts'} assigned.`
         : canGenerateDraft
           ? 'Generate first pass.'
-          : coveragePlanComplete
-            ? 'Generate draft.'
-            : nextGenerationCheckpoint?.pendingCopy ?? 'Complete setup first.',
+          : nextGenerationCheckpoint?.pendingCopy ?? 'Complete setup first.',
       complete: currentRoleDraftExists,
     },
     {
@@ -382,6 +371,18 @@ export const Scheduler = () => {
       complete: canPublish,
     },
   ];
+
+  const autoActivePhaseId = workflowSteps.find((step) => !step.complete)?.id ?? workflowSteps[workflowSteps.length - 1].id;
+  const effectiveExpandedPhase = manualExpandedPhase ?? autoActivePhaseId;
+
+  const handleSelectPhase = (phaseId) => {
+    setManualExpandedPhase(phaseId);
+    const step = workflowSteps.find((candidate) => candidate.id === phaseId);
+
+    if (step && typeof document !== 'undefined') {
+      document.getElementById(step.targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const editorViewOptions = [
     { id: 'individual', label: 'Individual', ariaLabel: 'Individual employee view', recommended: true },
@@ -408,6 +409,10 @@ export const Scheduler = () => {
   useEffect(() => {
     window.sessionStorage.setItem(EDITOR_VIEW_STORAGE_KEY, editorView);
   }, [editorView]);
+
+  useEffect(() => {
+    setManualExpandedPhase(null);
+  }, [autoActivePhaseId]);
 
   const getAssignmentState = (employee, day, shift) => {
     const isAssigned = (schedule.assignments[employee.id]?.[day] ?? []).includes(shift);
@@ -563,15 +568,36 @@ export const Scheduler = () => {
             </p>
           </div>
           <div className="scheduler__status-panel" aria-label="Schedule status panel">
-            <div className={`scheduler__status scheduler__status--${schedule.status}`}>
-              {scheduleStatusLabel}
-            </div>
+            <StatusBadge status={schedule.status} label={scheduleStatusLabel} />
             <p className="scheduler__status-summary">{headerStatusSummary}</p>
           </div>
         </div>
       </ContentPanel>
 
       <div className="scheduler__workflow-shell">
+        <div className="scheduler__workflow-panel" role="tablist" aria-label="Schedule workflow phases">
+          {workflowSteps.map((step) => (
+            <button
+              key={step.id}
+              type="button"
+              role="tab"
+              aria-selected={effectiveExpandedPhase === step.id}
+              className={`scheduler__workflow-step ${step.complete ? 'is-complete' : ''}`.trim()}
+              onClick={() => handleSelectPhase(step.id)}
+            >
+              <span className="scheduler__workflow-step-marker">
+                <span className="scheduler__workflow-icon" aria-hidden="true">
+                  <i className={`fas ${step.complete ? 'fa-check' : 'fa-circle'}`} />
+                </span>
+                <span className="scheduler__workflow-line" aria-hidden="true" />
+              </span>
+              <span className="scheduler__workflow-step-copy">
+                <strong>{step.label}</strong>
+                <p>{step.description}</p>
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <ContentPanel>
@@ -594,15 +620,31 @@ export const Scheduler = () => {
               </div>
               <span className="scheduler__coverage-summary-chip">{totalRequiredSlots} required slots</span>
             </div>
-            {!hasWeekSettings && (
-              <div className="scheduler__setup-banner" role="status" aria-label="Scheduling week setup notice">
-                <strong>Scheduling week setup required</strong>
-                <p>
-                  Set the workspace week start in{' '}
-                  <a href="/settings">Settings</a>
-                  {' '}before choosing the week to generate here.
+            {(!hasWeekSettings || isEditingWeekStart) ? (
+              <div className="scheduler__week-start-setup" role="group" aria-label="Set scheduling week start day">
+                <label htmlFor="week-starts-on-select" className="scheduler__label">Week starts on</label>
+                <select
+                  id="week-starts-on-select"
+                  className="scheduler__role-select"
+                  value={configuredWeekStart}
+                  onChange={handleWeekStartsOnChange}
+                >
+                  <option value="">Select a day</option>
+                  {DAYS.map((day) => (
+                    <option key={day} value={day}>{day}</option>
+                  ))}
+                </select>
+                <p className="scheduler__helper-copy scheduler__helper-copy--compact">
+                  Schedules always start on this day. You can change it any time.
                 </p>
               </div>
+            ) : (
+              <p className="scheduler__week-start-summary">
+                Week starts {configuredWeekStart}.{' '}
+                <button type="button" className="scheduler__inline-link" onClick={() => setIsEditingWeekStart(true)}>
+                  Change
+                </button>
+              </p>
             )}
             <label htmlFor="week-start-date" className="scheduler__label">Week start date</label>
             <input
@@ -628,15 +670,13 @@ export const Scheduler = () => {
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
-            <div className="scheduler__scope-actions">
-              <button
-                type="button"
-                className="button button-outline"
-                onClick={handleCreateNewScheduleContext}
-              >
-                Start over with a blank schedule
-              </button>
-            </div>
+            {hasWeekRange && hasRoleSelected && (
+              <p className={`scheduler__resume-note ${schedule.lastSavedAt ? 'is-resuming' : 'is-new'}`.trim()}>
+                {schedule.lastSavedAt
+                  ? `Resuming ${schedule.status === 'published' ? 'published' : 'saved'} schedule · last saved ${formatLastSavedAt(schedule.lastSavedAt)}`
+                  : 'New schedule · nothing saved for this week and role yet.'}
+              </p>
+            )}
             <dl className="scheduler__scope-summary" aria-label="Schedule setup summary">
               <div className="scheduler__scope-summary-item">
                 <dt>Week status</dt>
@@ -665,27 +705,10 @@ export const Scheduler = () => {
                 </p>
               </div>
               <span
-                className={`scheduler__coverage-state ${coveragePlanComplete ? 'is-complete' : 'is-pending'}`.trim()}
+                className={`scheduler__coverage-state ${hasCoverageTargets ? 'is-complete' : 'is-pending'}`.trim()}
               >
-                {coveragePlanComplete ? 'Confirmed' : 'Pending'}
+                {hasCoverageTargets ? 'Set' : 'Pending'}
               </span>
-            </div>
-            <div
-              className={`scheduler__checkpoint-banner ${coveragePlanComplete ? 'is-complete' : 'is-pending'}`.trim()}
-              aria-label="Coverage checkpoint"
-            >
-              <div>
-                <strong>{coveragePlanComplete ? 'Coverage confirmed' : 'Next required step: confirm coverage'}</strong>
-                <p>{coveragePlanNote}</p>
-              </div>
-              <button
-                type="button"
-                className={`button scheduler__coverage-plan-button${confirmCoverageIsNextAction ? ' is-next-action' : ''}`}
-                disabled={!canConfirmCoverage}
-                onClick={() => dispatch({ type: 'CONFIRM_COVERAGE_PLAN' })}
-              >
-                Confirm coverage plan
-              </button>
             </div>
             <div className="scheduler__coverage-plan-status">
               <div className="scheduler__coverage-plan-meta" aria-label="Coverage target summary">
@@ -693,13 +716,14 @@ export const Scheduler = () => {
                 <span>{shiftTypes.length} shift {shiftTypes.length === 1 ? 'type' : 'types'}</span>
                 <span>{totalRequiredSlots} required slots</span>
               </div>
-              {!coverageSetupReady && (
-                <p className="scheduler__coverage-plan-note">
-                  Choose the week and role first, then enter target coverage for each day and shift.
-                </p>
-              )}
             </div>
-            {openDays.length ? (
+            {openDays.length === 0 ? (
+              <p>No operating days are enabled. Update business hours in Settings to plan coverage.</p>
+            ) : !coverageSetupReady ? (
+              <p className="scheduler__coverage-plan-note">
+                Choose the week and role first, then enter target coverage for each day and shift.
+              </p>
+            ) : (
               shouldStackCoverageTargets ? (
                 <div className="scheduler__requirements-stack" aria-label="Coverage targets stacked layout">
                   {openDays.map((day) => (
@@ -762,8 +786,6 @@ export const Scheduler = () => {
                   </table>
                 </div>
               )
-            ) : (
-              <p>No operating days are enabled. Update business hours in Settings to plan coverage.</p>
             )}
           </div>
         </div>
@@ -774,7 +796,7 @@ export const Scheduler = () => {
                 <h3>Generate draft</h3>
                 <p className="scheduler__helper-copy scheduler__helper-copy--compact">
                   {currentRoleDraftExists
-                    ? `Use ${buildActionLabel.toLowerCase()} when you want a fresh pass from the confirmed demand plan.`
+                    ? `Use ${buildActionLabel.toLowerCase()} when you want a fresh pass from the current demand plan.`
                     : 'Create the first pass only after the week, role, and demand checkpoints are complete.'}
                 </p>
               </div>
@@ -785,9 +807,9 @@ export const Scheduler = () => {
                 type="button"
                 className="button button-outline"
                 disabled={!hasRoleSelected}
-                onClick={() => dispatch({ type: 'RESET_SCHEDULE_DRAFT' })}
+                onClick={handleCreateNewScheduleContext}
               >
-                {resetDraftLabel}
+                Reset
               </button>
               <button
                 type="button"
@@ -827,6 +849,17 @@ export const Scheduler = () => {
             <p>Start in the individual editor, then switch views only if you need a different way to finish the week.</p>
           </div>
         </div>
+        <div className={`scheduler__phase-body ${effectiveExpandedPhase === 'resolve' ? 'is-expanded' : 'is-collapsed'}`.trim()}>
+          <div className="scheduler__phase-summary">
+            <span className={`scheduler__workflow-icon ${issuesResolved ? 'is-complete' : ''}`.trim()} aria-hidden="true">
+              <i className={`fas ${issuesResolved ? 'fa-check' : 'fa-circle'}`} />
+            </span>
+            <p>{resolvePhaseDescription}</p>
+            <button type="button" className="button-outline" onClick={() => handleSelectPhase('resolve')}>
+              {currentRoleDraftExists ? 'Review' : 'Continue'}
+            </button>
+          </div>
+          <div className="scheduler__phase-full">
         <div className="scheduler__resolve-shell">
           <aside className="scheduler__resolve-sidebar">
             <div className="scheduler__resolve-sticky">
@@ -922,6 +955,8 @@ export const Scheduler = () => {
             </div>
           </div>
         </div>
+          </div>
+        </div>
       </ContentPanel>
 
       <ContentPanel>
@@ -933,6 +968,17 @@ export const Scheduler = () => {
             <p>Save the current draft first, then publish once the saved version is ready for the team.</p>
           </div>
         </div>
+        <div className={`scheduler__phase-body ${effectiveExpandedPhase === 'publish' ? 'is-expanded' : 'is-collapsed'}`.trim()}>
+          <div className="scheduler__phase-summary">
+            <span className={`scheduler__workflow-icon ${canPublish ? 'is-complete' : ''}`.trim()} aria-hidden="true">
+              <i className={`fas ${canPublish ? 'fa-check' : 'fa-circle'}`} />
+            </span>
+            <p>{workflowPublishDescription}</p>
+            <button type="button" className="button-outline" onClick={() => handleSelectPhase('publish')}>
+              {canPublish ? 'Review' : 'Continue'}
+            </button>
+          </div>
+          <div className="scheduler__phase-full">
         <div
           className={`scheduler__publish-bar ${canPublish ? 'is-ready' : 'is-blocked'}`.trim()}
           aria-label="Publish bar"
@@ -980,14 +1026,16 @@ export const Scheduler = () => {
             >
               Publish
             </button>
-            {schedule.status === 'published' && (
-              <a href={shiftsViewLink} className="scheduler__shifts-link">
-                View published schedule in Shifts
+            {schedule.lastSavedAt && (
+              <a href={historyViewLink} className="scheduler__shifts-link">
+                View in History
               </a>
             )}
             <p className="scheduler__publish-bar-note">
               Publish unlocks only after the latest draft is saved and no coverage or shift-cap blockers remain.
             </p>
+          </div>
+        </div>
           </div>
         </div>
       </ContentPanel>

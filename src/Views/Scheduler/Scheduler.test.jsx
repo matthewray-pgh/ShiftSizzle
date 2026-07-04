@@ -21,11 +21,9 @@ describe('Scheduler view', () => {
     expect(screen.getByRole('heading', { name: 'Set up and generate' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Resolve issues' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Publish Schedule' })).toBeInTheDocument();
-    expect(screen.getAllByText('Set the workspace week start in Settings before choosing a week to generate.').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeInTheDocument();
+    expect(screen.getAllByText('Choose which day your schedules start on, then pick a start date below.').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No schedule started yet');
-    expect(screen.getByRole('button', { name: 'Start over with a blank schedule' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reset to blank draft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Individual employee view' })).toHaveAttribute('aria-selected', 'true');
@@ -35,14 +33,12 @@ describe('Scheduler view', () => {
     expect(within(statusPanel).getByText('Draft schedule')).toBeInTheDocument();
     expect(within(statusPanel).getByText('Set the week and role to start planning.')).toBeInTheDocument();
     expect(screen.getByLabelText('Week start date')).toBeDisabled();
-    const setupNotice = screen.getByLabelText('Scheduling week setup notice');
+    const setupNotice = screen.getByLabelText('Set scheduling week start day');
 
-    expect(within(setupNotice).getByText('Scheduling week setup required')).toBeInTheDocument();
-    expect(within(setupNotice).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
-    expect(screen.getByRole('button', { name: 'Confirm coverage plan' })).toBeDisabled();
+    expect(within(setupNotice).getByLabelText('Week starts on')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
     expect(screen.getByText('Choose the week and role in Set up and generate before editing the schedule.')).toBeInTheDocument();
-    expect(screen.getAllByRole('spinbutton')[0]).toBeDisabled();
+    expect(screen.getByText('Choose the week and role first, then enter target coverage for each day and shift.')).toBeInTheDocument();
   });
 
   it('guards role switching when unpublished work is in progress', () => {
@@ -95,9 +91,9 @@ describe('Scheduler view', () => {
       </AppStateProvider>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start over with a blank schedule' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Switch schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
 
+    expect(screen.queryByText('Switch schedule?')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Week start date')).toHaveValue('');
     expect(screen.getByLabelText('Role')).toHaveValue('');
     expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No schedule started yet');
@@ -138,6 +134,7 @@ describe('Scheduler view', () => {
   it('hides closed days from scheduling controls', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: {
+        weekStartsOn: 'Sunday',
         operatingHours: {
           Sunday: {
             isOpen: false,
@@ -145,6 +142,12 @@ describe('Scheduler view', () => {
             closeTime: '21:00',
           },
         },
+      },
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
       },
     }));
 
@@ -236,14 +239,10 @@ describe('Scheduler view', () => {
 
     expect(publishButton).toBeDisabled();
     expect(screen.getByText('Active week needs attention')).toBeInTheDocument();
-    expect(screen.getAllByText('Confirm the coverage plan before publishing.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Save the current draft before publishing.').length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: 'Set up and generate' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Resolve issues' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Publish Schedule' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm coverage plan' }));
-
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate draft' }));
@@ -305,7 +304,6 @@ describe('Scheduler view', () => {
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        coveragePlanReviewed: true,
         selectedRole: 'Manager',
         requirements: {
           Sunday: { Open: 0 },
@@ -356,7 +354,7 @@ describe('Scheduler view', () => {
     expect(publishButton).toBeEnabled();
   });
 
-  it('requires coverage confirmation before draft generation after targets change', () => {
+  it('enables draft generation as soon as coverage targets are added, with no separate confirmation step', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: {
         weekStartsOn: 'Sunday',
@@ -376,22 +374,17 @@ describe('Scheduler view', () => {
     );
 
     expect(screen.getAllByText('Add at least one required slot to define demand.').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Confirm coverage plan' })).not.toBeInTheDocument();
 
     const mondayInput = screen.getAllByRole('spinbutton')[0];
     fireEvent.change(mondayInput, { target: { value: '2' } });
 
-    expect(screen.getByText('Confirm demand before generating the first draft.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm coverage plan' }));
-
-    expect(screen.getByText('Coverage confirmed')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
 
     fireEvent.change(mondayInput, { target: { value: '3' } });
 
-    expect(screen.getByText('Confirm demand before generating the first draft.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
   });
 
   it('switches the weekly schedule editor between individual, day, and comprehensive views', () => {
@@ -481,7 +474,7 @@ describe('Scheduler view', () => {
     expect(screen.getByLabelText('Weekly editor by day')).toBeInTheDocument();
   });
 
-  it('resets the draft assignments and notes from the review step', () => {
+  it('resets the entire phase (week, role, draft, and notes) when Reset is clicked from the review step', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       settings: {
         shiftTypes: ['Open'],
@@ -556,12 +549,12 @@ describe('Scheduler view', () => {
     expect(screen.getByDisplayValue('Review patio staffing.')).toBeInTheDocument();
     expect(screen.getByText('1/2 assigned')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear current role draft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
 
-    expect(screen.getByPlaceholderText('Schedule notes')).toHaveValue('');
-    expect(screen.getByText('0/2 assigned')).toBeInTheDocument();
-    expect(screen.getAllByText('Confirm the coverage plan before generating the draft.').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(screen.queryByText('Switch schedule?')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Week start date')).toHaveValue('');
+    expect(screen.getByLabelText('Role')).toHaveValue('');
+    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No schedule started yet');
   });
 
   it('disables extra manual assignment buttons once an employee reaches the weekly shift cap', () => {

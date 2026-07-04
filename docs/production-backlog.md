@@ -12,7 +12,7 @@ This file is the working source of truth for getting ShiftSizzle from a client-s
 ## Current State Summary
 
 - Frontend Vite + React application with shared local state persistence.
-- Core views exist for dashboard, team, scheduler, shifts, and settings.
+- Core views exist for dashboard, team, scheduler, history, and settings. (The former "Shifts" view was replaced by History, which lists all schedules — draft and published — instead of published-only content.)
 - No backend, authentication, database, deployment pipeline, or production monitoring yet.
 
 ## Release Blockers
@@ -139,6 +139,10 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 - [x] Finish roster import/export and CSV error handling.
 - [x] Tighten employee form validation, empty states, and onboarding copy.
 - [x] Confirm availability editing and shifts-per-week constraints behave consistently across card and list views.
+- [x] Consolidate the roster toolbar into a single "Roster data" menu (export/import) plus Add Employee, removing a duplicate "Blank template" entry point and the responsive full/collapsed button branching.
+- [x] Redesign roster filters into one consistent Search/Role/Status/View control row — search now filters live instead of requiring a submit click, and the scrolling role-chip rail (with custom overflow-arrow JS) was replaced by a plain dropdown that scales to any number of roles.
+- [x] Simplify the Import Roster dialog: fixed an inaccurate "Preferred Hours" column claim, consolidated three separate guidance blocks into one accurate helper line, and hid zero-count summary badges.
+- [x] Fix a color-contrast bug where Edit and Archive buttons in the roster list were nearly indistinguishable due to a global brand-theme style collision.
 
 ### 2. Scheduler Core Workflow
 
@@ -147,8 +151,14 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 - [ ] Surface conflict states, unavailable employees, and coverage gaps clearly. [Owner: Scheduling Eng] [Phase: MVP-Next]
 - [x] Add a clear draft-to-published schedule flow in the UI.
 - [x] Clarify schedule context management with explicit new-context action, active editing-context status, and guarded week/role switching. [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Consolidate two confusingly similar reset actions ("Start over with a blank schedule" and "Reset to blank draft") into a single "Reset" button that fully resets the phase (week, role, coverage targets, draft, notes), with the redundant reducer path and its dead-code helper removed.
+- [x] Remove the "Confirm coverage plan" checkpoint. It only toggled a boolean with no real validation and re-armed on every edit, forcing a repeated manual click during normal build-tweak-rebuild iteration. Draft generation and publish now depend directly on coverage targets being entered.
+- [x] Remove the "Switch schedule?" confirmation dialog specifically from the Reset button (it still guards direct week/role changes via the dropdowns, where losing in-place edits is a real risk).
+- [x] Replace the "go to Settings" dead-end banner with an inline week-start-day picker directly on the Scheduler page, and resurrect the unused workflow-phase stepper (Set up and generate / Resolve issues / Publish) with progressive disclosure so Phase 2/3 detail collapses until it's the active step.
+- [x] Fix a real crash in `UPDATE_SETTINGS` ("Cannot read properties of undefined") that occurred whenever settings were changed with no role selected — made newly reachable by the inline week-start picker.
+- [x] Fix two `position: sticky` overlap bugs (the Settings save bar and the Scheduler workflow stepper) that only surfaced under real incremental scrolling, not in full-page screenshots — both elements are now static/normal-flow.
 
-### 3. Published Schedule Consumption
+### 3. Schedule History Consumption
 
 - [x] Make the Shifts view reflect the published schedule state instead of placeholder content. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Add week navigation and recent schedule history in the frontend. [Owner: Frontend Eng] [Phase: MVP-Next]
@@ -156,12 +166,18 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 - [x] Add published schedule filtering by selectable range and role, with reset behavior and URL deep-link persistence. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Add grouped published schedule selection cards and improve default/no-match list states for clearer browsing. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Improve assignment review controls and layout context (employee/day-first views, selected schedule context chip, simplified employee table columns). [Owner: Frontend Eng] [Phase: MVP-Next]
+- [x] Reimagine the Shifts view as History: rename the page and nav entry, and reorient it around a filterable list of all schedules (draft and published) sorted newest to oldest, instead of a single published-only detail view.
+- [x] Add a persistence layer (`state.schedules[]`) so saved-but-unpublished drafts become permanent, resumable records — additive on top of the existing in-session `roleRequirements` model, with automatic migration from the legacy `publishHistory` shape (including a previously-invisible unpublished draft).
+- [x] Add role and status filtering (All / In progress / Published) to the History list, plus true-empty vs. filtered-empty onboarding states.
+- [x] Reorganize the History detail view: renamed the "Assignments" section to "Shift Assignments" and moved it to the top of the page; extracted the Assignments/Coverage/Unresolved-issues summary cards into a new "Details" panel at the bottom.
+- [x] Rename the detail view's scheduler deep-link action from "Resume in Scheduler" to "Edit Schedule" for clarity across both draft and published entries.
 
 ### 4. Settings That Drive Scheduling
 
 - [ ] Finish organization settings that materially affect scheduling behavior. [Owner: Settings Eng] [Phase: MVP-Next]
 - [ ] Make shift types, operating hours, and scheduling defaults fully editable in the UI. [Owner: Settings Eng] [Phase: MVP-Next]
 - [ ] Ensure settings changes propagate through team availability and scheduler views. [Owner: Settings Eng] [Phase: MVP-Next]
+- [x] Consolidate five separate Settings save forms (each with its own submit button) into one unified form with a single save bar (Discard changes / Save changes).
 
 ### 5. MVP Scope Cleanup
 
@@ -174,6 +190,7 @@ Use this sequence for the remaining frontend-first MVP work before backend wirin
 - [ ] Complete loading, empty, success, and error states across the MVP workflows above. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [ ] Finish keyboard support, focus handling, and responsive behavior for high-use controls. [Owner: Frontend Eng] [Phase: MVP-Next]
 - [x] Add or update tests for the critical team and scheduler happy paths.
+- [x] Add a shared `StatusBadge` component (draft/published/archived tone mapping) and retrofit it into Team, Dashboard, Scheduler, and History for consistent status styling.
 
 ### Phase 1: Architecture And Scope
 

@@ -5,3 +5,4 @@ export {
 export { ShiftCard } from "./ShiftCard/ShiftCard";
 export { Layout } from "./Layout";
 export { Button, InputField } from "./FormControls";
+export { StatusBadge } from "./StatusBadge/StatusBadge";
