@@ -14,7 +14,7 @@ export const Layout = ({ children }) => {
   const pageTitles = {
     "/": "Dashboard",
     "/scheduler": "Schedules",
-    "/shifts": "Shifts",
+    "/history": "History",
     "/team": "Team",
     "/settings": "Settings",
   };
@@ -78,9 +78,9 @@ const Navigation = ({ currentPage, testId }) => {
         <i className="fas fa-users" aria-hidden="true"></i>
         <span>Team</span>
       </NavLink>
-      <NavLink className={getLinkClass("Shifts")} to="/shifts">
-        <i className="fas fa-layer-group" aria-hidden="true"></i>
-        <span>Shifts</span>
+      <NavLink className={getLinkClass("History")} to="/history">
+        <i className="fas fa-clock-rotate-left" aria-hidden="true"></i>
+        <span>History</span>
       </NavLink>
       <NavLink className={getLinkClass("Settings")} to="/settings">
         <i className="fas fa-cog" aria-hidden="true"></i>

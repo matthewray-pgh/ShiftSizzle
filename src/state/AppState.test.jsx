@@ -66,13 +66,32 @@ const TestHarness = () => {
       <button type="button" onClick={() => dispatch({ type: 'SET_SELECTED_ROLE', payload: 'Manager' })}>
         Switch to Manager
       </button>
+      <button type="button" onClick={() => dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: '2026-05-24' })}>
+        Go to week A
+      </button>
+      <button type="button" onClick={() => dispatch({ type: 'SET_SCHEDULE_START_DATE', payload: '2026-05-31' })}>
+        Go to week B
+      </button>
+      <button
+        type="button"
+        onClick={() => dispatch({ type: 'RESUME_SCHEDULE', payload: '2026-05-24__Manager' })}
+      >
+        Resume week A Manager
+      </button>
       <span>Assigned count: {assignedCount}</span>
       <span>Selected role assigned count: {selectedRoleAssignedCount}</span>
       <span>Current role: {state.schedule.selectedRole}</span>
+      <span>Current week: {state.schedule.startDate}</span>
       <span>Monday Open requirement: {mondayOpenRequirement}</span>
       <span>Has unsaved changes: {state.schedule.hasUnsavedChanges ? 'yes' : 'no'}</span>
       <span>Has last saved at: {state.schedule.lastSavedAt ? 'yes' : 'no'}</span>
       <span>Schedule status: {state.schedule.status}</span>
+      <span>Saved schedules count: {state.schedules.length}</span>
+      <ul>
+        {state.schedules.map((record) => (
+          <li key={record.id}>{record.id} · {record.status}</li>
+        ))}
+      </ul>
     </>
   );
 };
@@ -118,7 +137,6 @@ describe('AppState scheduling', () => {
         weekLabel: 'May 25 - May 31, 2026',
         startDate: '2026-05-25',
         endDate: '2026-05-31',
-        coveragePlanReviewed: true,
         selectedRole: 'Manager',
         requirements: {
           Sunday: { Open: 0 },
@@ -366,7 +384,6 @@ describe('AppState scheduling', () => {
         weekLabel: 'May 25 - May 31, 2026',
         startDate: '2026-05-25',
         endDate: '2026-05-31',
-        coveragePlanReviewed: true,
         selectedRole: 'Manager',
         requirements: {
           Sunday: { Open: 0 },
@@ -563,5 +580,171 @@ describe('AppState scheduling', () => {
 
     expect(screen.getByText('Current role: Manager')).toBeInTheDocument();
     expect(screen.getByText('Selected role assigned count: 1')).toBeInTheDocument();
+  });
+
+  it('keeps a saved draft resumable after switching to a different week and back', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        shiftTypes: ['Open'],
+        weekStartsOn: 'Sunday',
+        operatingHours: {
+          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+          Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        },
+      },
+      employees: [
+        {
+          id: 1,
+          name: 'Jen Ray',
+          role: 'Manager',
+          status: 'active',
+          shiftsPerWeek: 2,
+          availability: {
+            Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'],
+          },
+        },
+      ],
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        requirements: {
+          Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 },
+        },
+        assignments: {
+          1: { Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] },
+        },
+        notes: '',
+        hasUnsavedChanges: true,
+      },
+    }));
+
+    render(
+      <AppStateProvider>
+        <TestHarness />
+      </AppStateProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to week B' }));
+    expect(screen.getByText('Monday Open requirement: 0')).toBeInTheDocument();
+    expect(screen.getByText('Has last saved at: no')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to week A' }));
+    expect(screen.getByText('Monday Open requirement: 1')).toBeInTheDocument();
+    expect(screen.getByText('Has last saved at: yes')).toBeInTheDocument();
+    expect(screen.getByText('Schedule status: draft')).toBeInTheDocument();
+  });
+
+  it('publishing upserts the same record instead of duplicating it', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: {
+        shiftTypes: ['Open'],
+        weekStartsOn: 'Sunday',
+        operatingHours: {
+          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+          Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        },
+      },
+      employees: [
+        {
+          id: 1,
+          name: 'Jen Ray',
+          role: 'Manager',
+          status: 'active',
+          shiftsPerWeek: 2,
+          availability: {
+            Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'],
+          },
+        },
+      ],
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        requirements: {
+          Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 },
+        },
+        assignments: {
+          1: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] },
+        },
+        notes: '',
+        lastSavedAt: '2026-05-20T12:00:00.000Z',
+        hasUnsavedChanges: false,
+      },
+    }));
+
+    render(
+      <AppStateProvider>
+        <TestHarness />
+      </AppStateProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-24__Manager · published')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Tuesday Open' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
+  });
+
+  it('migrates legacy publishHistory and an unpublished saved draft into schedules on load', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday' },
+      employees: [{ id: 1, name: 'Jen Ray', role: 'Manager', status: 'active' }],
+      schedule: {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        selectedRole: 'Manager',
+        status: 'draft',
+        lastSavedAt: '2026-05-20T12:00:00.000Z',
+        hasUnsavedChanges: false,
+        notes: 'Legacy saved draft',
+        requirements: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
+        assignments: {},
+        publishHistory: [
+          {
+            id: 'legacy-1',
+            weekLabel: 'May 17 - May 23, 2026',
+            startDate: '2026-05-17',
+            endDate: '2026-05-23',
+            selectedRole: 'Server',
+            publishedAt: '2026-05-16T12:00:00.000Z',
+            requirements: {},
+            assignments: {},
+            notes: '',
+          },
+        ],
+      },
+    }));
+
+    render(
+      <AppStateProvider>
+        <TestHarness />
+      </AppStateProvider>,
+    );
+
+    expect(screen.getByText('Saved schedules count: 2')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-17__Server · published')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
   });
 });

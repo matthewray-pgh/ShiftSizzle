@@ -69,24 +69,6 @@
     text-transform: uppercase;
   }
 
-  &__status {
-    width: fit-content;
-    padding: 6px 12px;
-    border-radius: 999px;
-    font-weight: 700;
-    font-size: 0.84rem;
-
-    &--draft {
-      background: rgba(245, 158, 11, 0.15);
-      color: styles.$warning;
-    }
-
-    &--published {
-      background: rgba(34, 197, 94, 0.15);
-      color: styles.$success;
-    }
-  }
-
   &__status-panel {
     display: grid;
     gap: 10px;
@@ -112,7 +94,7 @@
   }
 
   &__control-grid--coverage {
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
 
@@ -133,9 +115,8 @@
     background: styles.$background;
   }
 
-  &__control-card--coverage-role,
-  &__control-card--coverage-targets {
-    height: auto;
+  &__control-card--coverage-role {
+    max-width: 560px;
   }
 
   &__control-card-header {
@@ -282,87 +263,48 @@
     background: rgba(248, 250, 252, 0.76);
   }
 
-  &__checkpoint-banner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    margin: 0 0 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-
-    strong,
-    p {
-      display: block;
-    }
-
-    strong {
-      color: #14213d;
-      font-size: 0.93rem;
-    }
-
-    p {
-      margin: 4px 0 0;
-      color: styles.$text-secondary;
-      font-size: 0.84rem;
-      line-height: 1.35;
-    }
-
-    &.is-pending {
-      background: rgba(255, 247, 237, 0.92);
-      border-color: rgba(234, 88, 12, 0.16);
-    }
-
-    &.is-complete {
-      background: rgba(240, 253, 244, 0.92);
-      border-color: rgba(34, 197, 94, 0.16);
-    }
-  }
-
-  &__setup-banner {
+  &__week-start-setup {
     display: grid;
-    gap: 4px;
+    gap: 6px;
     margin: 0 0 12px;
     padding: 12px 14px;
     border-radius: 12px;
     border: 1px solid rgba(245, 158, 11, 0.24);
     background: rgba(255, 247, 237, 0.92);
-
-    strong,
-    p {
-      display: block;
-    }
-
-    strong {
-      color: #9a6700;
-      font-size: 0.9rem;
-    }
-
-    p {
-      margin: 0;
-      color: #7c5b12;
-      font-size: 0.84rem;
-      line-height: 1.35;
-    }
-
-    a {
-      color: #b45309;
-      font-weight: 700;
-      text-decoration: underline;
-      text-underline-offset: 0.15em;
-    }
   }
 
-  &__coverage-plan-button {
-    white-space: nowrap;
-    flex-shrink: 0;
-    min-height: 38px;
+  &__week-start-summary {
+    margin: 0 0 12px;
+    color: styles.$text-secondary;
+    font-size: 0.88rem;
+  }
 
-    &:disabled {
-      cursor: not-allowed;
-      transform: none;
-      opacity: 1;
+  &__inline-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+    cursor: pointer;
+  }
+
+  &__resume-note {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 600;
+
+    &.is-resuming {
+      background: rgba(37, 99, 235, 0.08);
+      color: #1d4ed8;
+    }
+
+    &.is-new {
+      background: rgba(148, 163, 184, 0.14);
+      color: styles.$text-secondary;
     }
   }
 
@@ -398,12 +340,6 @@
     gap: 8px;
     margin: 12px 0 0;
     padding: 0;
-  }
-
-  &__scope-actions {
-    margin-top: 10px;
-    display: flex;
-    justify-content: flex-start;
   }
 
   &__scope-summary-item {
@@ -516,9 +452,7 @@
   }
 
   &__workflow-shell {
-    position: sticky;
-    top: 8px;
-    z-index: 5;
+    margin: 0 20px 10px;
   }
 
   &__workflow-shell-copy {
@@ -1374,7 +1308,7 @@
 
   &__workflow-panel {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -1384,9 +1318,17 @@
     gap: 10px;
     min-height: 0;
     padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
     border: 1px solid rgba(37, 99, 235, 0.12);
     border-radius: 10px;
     background: #fff;
+
+    &[aria-selected="true"] {
+      border-color: rgba(37, 99, 235, 0.4);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    }
 
     &.is-complete {
       .scheduler__workflow-icon {
@@ -1398,6 +1340,33 @@
       .scheduler__workflow-line {
         background: rgba(34, 197, 94, 0.35);
       }
+    }
+  }
+
+  &__phase-body {
+    &.is-collapsed .scheduler__phase-full {
+      display: none;
+    }
+
+    &.is-expanded .scheduler__phase-summary {
+      display: none;
+    }
+  }
+
+  &__phase-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(248, 250, 252, 0.86);
+
+    p {
+      flex: 1 1 auto;
+      margin: 0;
+      color: styles.$text-secondary;
+      font-size: 0.92rem;
     }
   }
 
@@ -1420,6 +1389,13 @@
     background: rgba(37, 99, 235, 0.08);
     color: #1d4ed8;
     font-size: 0.72rem;
+    flex-shrink: 0;
+
+    &.is-complete {
+      background: rgba(34, 197, 94, 0.15);
+      color: styles.$success;
+      border-color: rgba(34, 197, 94, 0.3);
+    }
   }
 
   &__workflow-line {
@@ -1504,10 +1480,6 @@
 
 @media (max-width: 1100px) {
   .scheduler {
-    &__control-grid--coverage {
-      grid-template-columns: 1fr;
-    }
-
     &__control-card-header {
       flex-direction: column;
       align-items: flex-start;
@@ -1530,7 +1502,6 @@
       line-height: 1.4;
     }
 
-    &__checkpoint-banner,
     &__workflow-shell-copy {
       align-items: flex-start;
       flex-direction: column;
@@ -1704,12 +1675,6 @@
 
 @media (max-width: 700px) {
   .scheduler {
-    &__workflow-shell {
-      position: static;
-      top: auto;
-      z-index: auto;
-    }
-
     &__page-header,
     &__section-header {
       flex-direction: column;
@@ -1855,10 +1820,6 @@
     &__coverage-plan-actions {
       align-items: stretch;
       flex-direction: column;
-    }
-
-    &__coverage-plan-button {
-      width: 100%;
     }
   }
 }

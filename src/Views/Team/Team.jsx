@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Button, ContentPanel, InputField } from '../../Components';
+import { Button, ContentPanel, InputField, StatusBadge } from '../../Components';
 import { BASE_TEAM_ROLES, DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
 import {
   buildRosterImportPreview,
@@ -30,7 +30,6 @@ const MODAL_TABS = Object.freeze({
 });
 
 const MOBILE_VIEW_BREAKPOINT = 900;
-const COMPACT_DESKTOP_BREAKPOINT = 1180;
 const ROSTER_IMPORT_MODES = [
   { value: 'add', label: 'Add new only' },
   { value: 'upsert', label: 'Add and update matches' },
@@ -130,28 +129,20 @@ export const Team = () => {
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRosterActionsMenu, setShowRosterActionsMenu] = useState(false);
-  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All roles');
   const [statusFilter, setStatusFilter] = useState('active');
   const [viewMode, setViewMode] = useState(VIEW_MODES.LIST);
   const [slideDir, setSlideDir] = useState('from-right');
   const [activeModalTab, setActiveModalTab] = useState(MODAL_TABS.DETAILS);
-  const [roleChipOverflow, setRoleChipOverflow] = useState({ showLeft: false, showRight: false });
   const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= MOBILE_VIEW_BREAKPOINT);
-  const [isCompactDesktop, setIsCompactDesktop] = useState(
-    () => window.innerWidth <= COMPACT_DESKTOP_BREAKPOINT && window.innerWidth > MOBILE_VIEW_BREAKPOINT,
-  );
   const [importMode, setImportMode] = useState('add');
   const [importRows, setImportRows] = useState([]);
   const [importFileName, setImportFileName] = useState('');
   const [importFileError, setImportFileError] = useState('');
-  const roleChipsRef = useRef(null);
   const importFileInputRef = useRef(null);
   const rosterActionsMenuRef = useRef(null);
   const activeViewMode = isMobileView ? VIEW_MODES.CARD : viewMode;
-  const showFullDesktopRosterTools = !isMobileView && !isCompactDesktop;
-  const showCollapsedRosterTools = !showFullDesktopRosterTools;
   const importPreview = buildRosterImportPreview(importRows, employees, importMode);
 
   const switchView = (mode) => {
@@ -163,62 +154,9 @@ export const Team = () => {
     setViewMode(mode);
   };
 
-  const submitSearch = (event) => {
-    event.preventDefault();
-    setSearchTerm(searchInput.trim());
-  };
-
-  const scrollRoleChips = (direction) => {
-    const chipContainer = roleChipsRef.current;
-
-    if (!chipContainer) {
-      return;
-    }
-
-    const targetLeft = direction === 'left' ? 0 : chipContainer.scrollWidth;
-
-    if (typeof chipContainer.scrollTo === 'function') {
-      chipContainer.scrollTo({ left: targetLeft, behavior: 'smooth' });
-      return;
-    }
-
-    chipContainer.scrollLeft = targetLeft;
-  };
-
-  useEffect(() => {
-    const chipContainer = roleChipsRef.current;
-
-    if (!chipContainer) {
-      return undefined;
-    }
-
-    const updateOverflowState = () => {
-      const hasOverflow = chipContainer.scrollWidth - chipContainer.clientWidth > 4;
-
-      setRoleChipOverflow({
-        showLeft: hasOverflow && chipContainer.scrollLeft > 4,
-        showRight: hasOverflow && chipContainer.scrollLeft + chipContainer.clientWidth < chipContainer.scrollWidth - 4,
-      });
-    };
-
-    updateOverflowState();
-    chipContainer.addEventListener('scroll', updateOverflowState, { passive: true });
-    window.addEventListener('resize', updateOverflowState);
-
-    return () => {
-      chipContainer.removeEventListener('scroll', updateOverflowState);
-      window.removeEventListener('resize', updateOverflowState);
-    };
-  }, []);
-
   useEffect(() => {
     const updateViewportState = () => {
-      const nextIsMobileView = window.innerWidth <= MOBILE_VIEW_BREAKPOINT;
-
-      setIsMobileView(nextIsMobileView);
-      setIsCompactDesktop(
-        window.innerWidth <= COMPACT_DESKTOP_BREAKPOINT && !nextIsMobileView,
-      );
+      setIsMobileView(window.innerWidth <= MOBILE_VIEW_BREAKPOINT);
     };
 
     updateViewportState();
@@ -254,12 +192,6 @@ export const Team = () => {
       document.removeEventListener('keydown', handleEscape);
     };
   }, [showRosterActionsMenu]);
-
-  useEffect(() => {
-    if (showFullDesktopRosterTools) {
-      setShowRosterActionsMenu(false);
-    }
-  }, [showFullDesktopRosterTools]);
 
   const updateFormField = (field, value) => {
     setForm((currentForm) => {
@@ -523,11 +455,7 @@ export const Team = () => {
     );
   };
 
-  const renderStatusBadge = (status) => (
-    <span className={`team__status-badge team__status-badge--${status}`.trim()}>
-      {status}
-    </span>
-  );
+  const renderStatusBadge = (status) => <StatusBadge status={status} />;
 
   return (
     <div className="team">
@@ -535,136 +463,68 @@ export const Team = () => {
         <div className="team__control-header">
           <div className="team__control-copy">
             <span className="team__control-eyebrow">Team workspace</span>
-            <h2>Manage roster and staffing filters</h2>
-            <p>Search, filter, and switch views from one control bar.</p>
+            <h2>Team roster</h2>
+            <p>Search, filter, and manage your team below.</p>
           </div>
           {hasEmployees && (
             <div className="team__control-actions">
-              {!isMobileView && (
-                <div className="team__control-view-group">
-                  <span className="team__control-label">View</span>
-                  <div className="team__view-toggle" role="group" aria-label="Team view mode">
-                    <span
-                      className={`team__view-toggle-indicator team__view-toggle-indicator--${viewMode}`}
-                      aria-hidden="true"
-                    />
-                    <button
-                      type="button"
-                      className={`team__view-toggle-button ${viewMode === VIEW_MODES.CARD ? 'is-active' : ''}`.trim()}
-                      onClick={() => switchView(VIEW_MODES.CARD)}
-                      title="Card view"
-                      aria-label="Card view"
-                    >
-                      <i className="fas fa-th-large" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`team__view-toggle-button ${viewMode === VIEW_MODES.LIST ? 'is-active' : ''}`.trim()}
-                      onClick={() => switchView(VIEW_MODES.LIST)}
-                      title="List view"
-                      aria-label="List view"
-                    >
-                      <i className="fas fa-list" aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-              )}
-              {showFullDesktopRosterTools && (
-                <div className="team__control-actions-secondary" aria-label="Roster download actions">
-                  <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={downloadBlankRosterTemplate}>
-                    <span className="team__action-icon" aria-hidden="true">
-                      <i className="fas fa-file-arrow-down" />
-                    </span>
-                    Blank template
-                  </Button>
-                  <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={exportRoster}>
-                    <span className="team__action-icon" aria-hidden="true">
-                      <i className="fas fa-download" />
-                    </span>
-                    Export roster
-                  </Button>
-                </div>
-              )}
-              <div className="team__control-actions-primary">
-                {showCollapsedRosterTools && (
-                  <div className="team__downloads-menu" ref={rosterActionsMenuRef}>
-                    <Button
-                      type="button"
-                      className="team__toolbar-action team__toolbar-action--secondary"
-                      onClick={() => setShowRosterActionsMenu((current) => !current)}
-                      aria-haspopup="menu"
-                      aria-expanded={showRosterActionsMenu}
-                    >
-                      <span className="team__action-icon" aria-hidden="true">
-                        <i className="fas fa-ellipsis-h" />
-                      </span>
-                      Roster actions
-                    </Button>
-                    {showRosterActionsMenu && (
-                      <div className="team__downloads-menu-popover" role="menu" aria-label="Roster actions menu">
-                        <button
-                          type="button"
-                          className="team__downloads-menu-item"
-                          onClick={downloadBlankRosterTemplate}
-                          role="menuitem"
-                        >
-                          <span className="team__action-icon" aria-hidden="true">
-                            <i className="fas fa-file-arrow-down" />
-                          </span>
-                          Blank template
-                        </button>
-                        <button
-                          type="button"
-                          className="team__downloads-menu-item"
-                          onClick={exportRoster}
-                          role="menuitem"
-                        >
-                          <span className="team__action-icon" aria-hidden="true">
-                            <i className="fas fa-download" />
-                          </span>
-                          Export roster
-                        </button>
-                        <button
-                          type="button"
-                          className="team__downloads-menu-item"
-                          onClick={openImportModal}
-                          role="menuitem"
-                        >
-                          <span className="team__action-icon" aria-hidden="true">
-                            <i className="fas fa-file-import" />
-                          </span>
-                          Import roster
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {showFullDesktopRosterTools && (
-                  <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
-                    <span className="team__action-icon" aria-hidden="true">
-                      <i className="fas fa-file-import" />
-                    </span>
-                    Import roster
-                  </Button>
-                )}
+              <div className="team__downloads-menu" ref={rosterActionsMenuRef}>
                 <Button
-                  onClick={openCreateModal}
-                  className="team__primary-action"
+                  type="button"
+                  className="team__toolbar-action team__toolbar-action--secondary"
+                  onClick={() => setShowRosterActionsMenu((current) => !current)}
+                  aria-haspopup="menu"
+                  aria-expanded={showRosterActionsMenu}
                 >
                   <span className="team__action-icon" aria-hidden="true">
-                    <i className="fas fa-plus" />
+                    <i className="fas fa-database" />
                   </span>
-                  Add Employee
+                  Roster data
                 </Button>
+                {showRosterActionsMenu && (
+                  <div className="team__downloads-menu-popover" role="menu" aria-label="Roster data menu">
+                    <button
+                      type="button"
+                      className="team__downloads-menu-item"
+                      onClick={exportRoster}
+                      role="menuitem"
+                    >
+                      <span className="team__action-icon" aria-hidden="true">
+                        <i className="fas fa-download" />
+                      </span>
+                      Export roster
+                    </button>
+                    <button
+                      type="button"
+                      className="team__downloads-menu-item"
+                      onClick={openImportModal}
+                      role="menuitem"
+                    >
+                      <span className="team__action-icon" aria-hidden="true">
+                        <i className="fas fa-file-import" />
+                      </span>
+                      Import roster
+                    </button>
+                  </div>
+                )}
               </div>
+              <Button
+                onClick={openCreateModal}
+                className="team__primary-action"
+              >
+                <span className="team__action-icon" aria-hidden="true">
+                  <i className="fas fa-plus" />
+                </span>
+                Add Employee
+              </Button>
             </div>
           )}
         </div>
 
         {hasEmployees && (
           <div className="team__filters-panel">
-            <form className="team__search-form" onSubmit={submitSearch}>
-              <label className="team__filter-label" htmlFor="team-search-input">Search roster</label>
+            <div className="team__filter-group team__filter-group--search">
+              <label className="team__filter-label" htmlFor="team-search-input">Search</label>
               <div className="team__search-shell">
                 <span className="team__search-icon" aria-hidden="true">
                   <i className="fas fa-search" />
@@ -675,78 +535,78 @@ export const Team = () => {
                   type="search"
                   placeholder="Search employees"
                   aria-label="Search employees"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <button type="submit" className="team__search-submit" aria-label="Run employee search">
-                  <i className="fas fa-arrow-right" aria-hidden="true" />
-                </button>
-              </div>
-            </form>
-            <div className="team__filter-rail">
-              <div className="team__filter-group">
-                <span className="team__filter-label">Role</span>
-                <div
-                  className={`team__filter-chips-shell ${roleChipOverflow.showLeft ? 'has-left-overflow' : ''} ${roleChipOverflow.showRight ? 'has-right-overflow' : ''}`.trim()}
-                >
-                  {roleChipOverflow.showLeft && (
-                    <button
-                      type="button"
-                      className="team__filter-chips-hint team__filter-chips-hint--left"
-                      aria-label="Scroll roles to beginning"
-                      onClick={() => scrollRoleChips('left')}
-                    >
-                      <i className="fas fa-chevron-left" />
-                    </button>
-                  )}
-                  <div ref={roleChipsRef} className="team__filter-chips" role="group" aria-label="Filter by role">
-                    {roleFilterOptions.map((role) => (
-                      <button
-                        key={role}
-                        type="button"
-                        className={`team__filter-chip ${roleFilter === role ? 'is-active' : ''}`.trim()}
-                        onClick={() => setRoleFilter(role)}
-                        aria-pressed={roleFilter === role}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-                  {roleChipOverflow.showRight && (
-                    <button
-                      type="button"
-                      className="team__filter-chips-hint team__filter-chips-hint--right"
-                      aria-label="Scroll roles to end"
-                      onClick={() => scrollRoleChips('right')}
-                    >
-                      <i className="fas fa-chevron-right" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="team__filter-group">
-                <span className="team__filter-label">Status</span>
-                <div className="team__status-toggle" role="group" aria-label="Filter by status">
-                  <span
-                    className={`team__status-toggle-indicator team__status-toggle-indicator--${statusFilter}`}
-                    aria-hidden="true"
-                  />
-                  {STATUS_FILTER_OPTIONS.map(({ value, label }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`team__status-toggle-button ${statusFilter === value ? 'is-active' : ''}`.trim()}
-                      onClick={() => setStatusFilter(value)}
-                      aria-pressed={statusFilter === value}
-                      aria-label={`${label} ${statusCounts[value]}`}
-                    >
-                      <span className="team__status-toggle-text">{label}</span>
-                      <span className="team__status-toggle-count">{statusCounts[value]}</span>
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
+
+            <div className="team__filter-group">
+              <label className="team__filter-label" htmlFor="team-role-filter">Role</label>
+              <select
+                id="team-role-filter"
+                className="team__filter-select"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+              >
+                {roleFilterOptions.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="team__filter-group">
+              <span className="team__filter-label">Status</span>
+              <div className="team__status-toggle" role="group" aria-label="Filter by status">
+                <span
+                  className={`team__status-toggle-indicator team__status-toggle-indicator--${statusFilter}`}
+                  aria-hidden="true"
+                />
+                {STATUS_FILTER_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`team__status-toggle-button ${statusFilter === value ? 'is-active' : ''}`.trim()}
+                    onClick={() => setStatusFilter(value)}
+                    aria-pressed={statusFilter === value}
+                    aria-label={`${label} ${statusCounts[value]}`}
+                  >
+                    <span className="team__status-toggle-text">{label}</span>
+                    <span className="team__status-toggle-count">{statusCounts[value]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!isMobileView && (
+              <div className="team__filter-group">
+                <span className="team__filter-label">View</span>
+                <div className="team__view-toggle" role="group" aria-label="Team view mode">
+                  <span
+                    className={`team__view-toggle-indicator team__view-toggle-indicator--${viewMode}`}
+                    aria-hidden="true"
+                  />
+                  <button
+                    type="button"
+                    className={`team__view-toggle-button ${viewMode === VIEW_MODES.CARD ? 'is-active' : ''}`.trim()}
+                    onClick={() => switchView(VIEW_MODES.CARD)}
+                    title="Card view"
+                    aria-label="Card view"
+                  >
+                    <i className="fas fa-th-large" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`team__view-toggle-button ${viewMode === VIEW_MODES.LIST ? 'is-active' : ''}`.trim()}
+                    onClick={() => switchView(VIEW_MODES.LIST)}
+                    title="List view"
+                    aria-label="List view"
+                  >
+                    <i className="fas fa-list" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </ContentPanel>
@@ -1100,11 +960,6 @@ export const Team = () => {
             </div>
             <div className="team__modal-body">
               <section className="team__import-shell">
-                <div className="team__import-note" aria-label="Roster import note">
-                  <span className="team__availability-summary-label">Roster CSV workflow</span>
-                  <p>Availability is intentionally excluded for now while shifts are being moved toward business-configurable settings.</p>
-                </div>
-
                 <div className="team__import-grid">
                   <div className="team__import-field">
                     <label htmlFor="team-roster-file">Roster CSV file</label>
@@ -1115,7 +970,9 @@ export const Team = () => {
                       accept=".csv,text/csv"
                       onChange={handleImportFileChange}
                     />
-                    <p className="team__import-helper">Supported columns: Name, Title, Role, Contact, Email, Preferred Hours, Status.</p>
+                    <p className="team__import-helper">
+                      Columns: Name, Title, Role, Contact, Email, Status. Availability isn&apos;t imported yet — set it per employee afterward.
+                    </p>
                     {importFileName && <p className="team__import-file-name">Loaded {importFileName}</p>}
                   </div>
 
@@ -1141,10 +998,18 @@ export const Team = () => {
 
                 {importPreview.rows.length > 0 && (
                   <div className="team__import-summary" aria-label="Import summary">
-                    <span className="team__import-badge team__import-badge--create">{importPreview.summary.create} new</span>
-                    <span className="team__import-badge team__import-badge--update">{importPreview.summary.update} updates</span>
-                    <span className="team__import-badge team__import-badge--skip">{importPreview.summary.skip} skipped</span>
-                    <span className="team__import-badge team__import-badge--invalid">{importPreview.summary.invalid} invalid</span>
+                    {importPreview.summary.create > 0 && (
+                      <span className="team__import-badge team__import-badge--create">{importPreview.summary.create} new</span>
+                    )}
+                    {importPreview.summary.update > 0 && (
+                      <span className="team__import-badge team__import-badge--update">{importPreview.summary.update} updates</span>
+                    )}
+                    {importPreview.summary.skip > 0 && (
+                      <span className="team__import-badge team__import-badge--skip">{importPreview.summary.skip} skipped</span>
+                    )}
+                    {importPreview.summary.invalid > 0 && (
+                      <span className="team__import-badge team__import-badge--invalid">{importPreview.summary.invalid} invalid</span>
+                    )}
                   </div>
                 )}
 
@@ -1181,7 +1046,7 @@ export const Team = () => {
                 ) : (
                   <div className="team__import-empty-state">
                     <h3>Choose a roster file to preview changes.</h3>
-                    <p>Download the blank template or export the current roster if you want a ready-made CSV to edit and upload.</p>
+                    <p>Need a starting point? Use the Download template link above.</p>
                   </div>
                 )}
               </section>

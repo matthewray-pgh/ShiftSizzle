@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider } from '../../state/AppState';
@@ -45,54 +45,13 @@ describe('Team view', () => {
     confirmSpy.mockRestore();
   });
 
-  it('filters team members by role chip', () => {
+  it('filters team members by role', () => {
     renderView(Team);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bartender' }));
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Bartender' } });
 
     expect(screen.getByText('Kayla Brooks')).toBeInTheDocument();
     expect(screen.queryByText('Jen Ray')).not.toBeInTheDocument();
-  });
-
-  it('scrolls role chips when the overflow chevrons are clicked', async () => {
-    window.innerWidth = 1024;
-    window.dispatchEvent(new Event('resize'));
-
-    renderView(Team);
-
-    const roleChipGroup = screen.getByRole('group', { name: 'Filter by role' });
-    let scrollLeft = 40;
-
-    Object.defineProperty(roleChipGroup, 'clientWidth', {
-      configurable: true,
-      value: 120,
-    });
-    Object.defineProperty(roleChipGroup, 'scrollWidth', {
-      configurable: true,
-      value: 420,
-    });
-    Object.defineProperty(roleChipGroup, 'scrollLeft', {
-      configurable: true,
-      get: () => scrollLeft,
-      set: (value) => {
-        scrollLeft = value;
-      },
-    });
-
-    roleChipGroup.scrollTo = vi.fn(({ left }) => {
-      scrollLeft = left;
-    });
-
-    window.dispatchEvent(new Event('resize'));
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Scroll roles to end' }));
-    expect(roleChipGroup.scrollTo).toHaveBeenCalledWith({ left: 420, behavior: 'smooth' });
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Scroll roles to beginning' }));
-    expect(roleChipGroup.scrollTo).toHaveBeenLastCalledWith({ left: 0, behavior: 'smooth' });
-
-    window.innerWidth = 1280;
-    window.dispatchEvent(new Event('resize'));
   });
 
   it('shows counts in the status control', () => {
@@ -196,7 +155,6 @@ describe('Team view', () => {
     renderView(Team);
 
     fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'zzzz-no-match' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run employee search' }));
 
     expect(screen.getByText('No team members match these filters.')).toBeInTheDocument();
   });
@@ -215,19 +173,19 @@ describe('Team view', () => {
     expect(screen.getByRole('button', { name: 'Import roster' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download blank template' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Search employees')).not.toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'Filter by role' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Filter by status' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Team view mode' })).not.toBeInTheDocument();
     expect(screen.queryByText('No team members match these filters.')).not.toBeInTheDocument();
   });
 
-  it('runs search when pressing enter in the search input', () => {
+  it('filters as you type without needing to submit', () => {
     renderView(Team);
 
-    fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'zzzz-no-match' } });
-    fireEvent.submit(screen.getByRole('searchbox', { name: 'Search employees' }));
+    fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'Jen Ray' } });
 
-    expect(screen.getByText('No team members match these filters.')).toBeInTheDocument();
+    expect(screen.getByText('Jen Ray')).toBeInTheDocument();
+    expect(screen.queryByText('Ryan Sutton')).not.toBeInTheDocument();
   });
 
   it('shows inline validation errors on blur', () => {
@@ -283,71 +241,27 @@ describe('Team view', () => {
     window.dispatchEvent(new Event('resize'));
   });
 
-  it('shows a roster actions menu on compact and mobile widths', async () => {
-    Object.defineProperty(window, 'innerWidth', {
-      configurable: true,
-      writable: true,
-      value: 1024,
-    });
-    window.dispatchEvent(new Event('resize'));
-
-    const { unmount } = renderView(Team);
-
-    expect(screen.queryByRole('button', { name: 'Blank template' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Export roster' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Import roster' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Roster actions' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Roster actions' }));
-
-    expect(screen.getByRole('menu', { name: 'Roster actions menu' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Blank template' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Export roster' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Import roster' })).toBeInTheDocument();
-
-    unmount();
-
-    Object.defineProperty(window, 'innerWidth', {
-      configurable: true,
-      writable: true,
-      value: 1600,
-    });
-    window.dispatchEvent(new Event('resize'));
-
+  it('shows a roster data menu with export and import actions', () => {
     renderView(Team);
 
-    expect(screen.getByRole('button', { name: 'Blank template' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export roster' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import roster' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Roster actions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export roster' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import roster' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Roster data' })).toBeInTheDocument();
 
-    Object.defineProperty(window, 'innerWidth', {
-      configurable: true,
-      writable: true,
-      value: 768,
-    });
-    window.dispatchEvent(new Event('resize'));
+    fireEvent.click(screen.getByRole('button', { name: 'Roster data' }));
 
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Blank template' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Export roster' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Import roster' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Roster actions' })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Roster actions' }));
+    expect(screen.getByRole('menu', { name: 'Roster data menu' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Export roster' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Import roster' })).toBeInTheDocument();
   });
 
   it('imports a roster csv from the modal workflow', async () => {
-    window.innerWidth = 1280;
-    window.dispatchEvent(new Event('resize'));
-
     renderView(Team);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Roster data' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import roster' }));
 
-    expect(screen.getByLabelText('Roster import note')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Import roster' })).toBeInTheDocument();
 
     const rosterFile = new File([
       [
@@ -372,9 +286,8 @@ describe('Team view', () => {
     window.dispatchEvent(new Event('resize'));
   });
 
-  it('downloads a blank roster template csv', () => {
-    window.innerWidth = 1280;
-    window.dispatchEvent(new Event('resize'));
+  it('downloads a blank roster template csv from the onboarding empty state', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees: [] }));
 
     const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template');
     const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -404,16 +317,17 @@ describe('Team view', () => {
         return originalCreateElement(tagName);
     });
 
-    renderView(Team);
+    render(
+      <AppStateProvider>
+        <Team />
+      </AppStateProvider>
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Blank template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download blank template' }));
 
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:template');
-
-    window.innerWidth = 1024;
-    window.dispatchEvent(new Event('resize'));
 
     createElementSpy.mockRestore();
     createObjectUrlSpy.mockRestore();
@@ -421,9 +335,6 @@ describe('Team view', () => {
   });
 
   it('downloads the blank template from inside the import modal', () => {
-    window.innerWidth = 1280;
-    window.dispatchEvent(new Event('resize'));
-
     const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template-modal');
     const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
     const originalCreateElement = document.createElement.bind(document);
@@ -454,15 +365,13 @@ describe('Team view', () => {
 
     renderView(Team);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Roster data' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import roster' }));
     fireEvent.click(screen.getByRole('button', { name: 'Download template' }));
 
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:template-modal');
-
-    window.innerWidth = 1024;
-    window.dispatchEvent(new Event('resize'));
 
     createElementSpy.mockRestore();
     createObjectUrlSpy.mockRestore();

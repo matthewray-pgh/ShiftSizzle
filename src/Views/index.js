@@ -1,5 +1,5 @@
 export { Dashboard } from './Dashboard';
 export { Scheduler } from './Scheduler';
-export { Shifts } from './Shifts';
+export { History } from './History';
 export { Team } from './Team';
 export { Settings } from './Settings';
