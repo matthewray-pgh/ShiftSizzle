@@ -401,18 +401,43 @@
 
 @media (max-width: 720px) {
   .settings {
+    &__group {
+      gap: 0.6rem;
+    }
+
+    &__group .input-field {
+      margin-bottom: 0;
+    }
+
     &__hours-head {
       display: none;
     }
 
     &__hours-row {
-      grid-template-columns: 1fr;
-      gap: 0.7rem;
-      padding: 0.95rem;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "day toggle"
+        "open close";
+      align-items: center;
+      gap: 0.5rem 0.7rem;
+      padding: 0.85rem;
+    }
+
+    &__hours-day {
+      grid-area: day;
+    }
+
+    &__hours-time--open {
+      grid-area: open;
+    }
+
+    &__hours-time--close {
+      grid-area: close;
     }
 
     &__hours-toggle-cell {
-      justify-content: flex-start;
+      grid-area: toggle;
+      justify-content: flex-end;
     }
 
     &__inline-form {

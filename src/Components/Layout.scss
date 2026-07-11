@@ -203,7 +203,7 @@ body {
 
     .layout__nav {
       height: 100%;
-      padding: 6px 4px 0;
+      padding: 0 4px;
       grid-template-columns: repeat(5, minmax(0, 1fr));
       align-items: stretch;
     }

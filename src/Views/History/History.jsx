@@ -58,6 +58,7 @@ export const History = () => {
   const [filterRole, setFilterRole] = useState(() => getInitialQueryValue('role', 'all'));
   const [filterStatus, setFilterStatus] = useState(() => getInitialQueryValue('status', 'all'));
   const [assignmentLayout, setAssignmentLayout] = useState(getInitialAssignmentLayout);
+  const [showFilters, setShowFilters] = useState(false);
 
   const sortedSchedules = useMemo(
     () => [...schedules].sort((a, b) => {
@@ -148,43 +149,62 @@ export const History = () => {
   };
 
   const filterControls = (
-    <section className="history__filters" aria-label="Schedule history filters">
-      <div className="history__filter-field">
-        <label htmlFor="history-filter-role">Role</label>
-        <select
-          id="history-filter-role"
-          value={filterRole}
-          onChange={(event) => setFilterRole(event.target.value)}
-        >
-          <option value="all">All roles</option>
-          {availableRoles.map((role) => (
-            <option key={`role-filter-${role}`} value={role}>{role}</option>
-          ))}
-        </select>
-      </div>
-      <div className="history__filter-field">
-        <label htmlFor="history-filter-status">Status</label>
-        <select
-          id="history-filter-status"
-          value={filterStatus}
-          onChange={(event) => setFilterStatus(event.target.value)}
-        >
-          {Object.entries(STATUS_FILTER_LABELS).map(([value, label]) => (
-            <option key={`status-filter-${value}`} value={value}>{label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="history__filter-actions">
-        <button
-          type="button"
-          className="history__filter-reset"
-          onClick={resetFilters}
-          disabled={!hasActiveFilters}
-        >
-          Reset filters
-        </button>
-      </div>
-    </section>
+    <>
+      <button
+        type="button"
+        className="history__filters-toggle"
+        onClick={() => setShowFilters((current) => !current)}
+        aria-expanded={showFilters}
+        aria-controls="history-filters-panel"
+      >
+        <span>
+          <i className="fas fa-sliders" aria-hidden="true" />
+          Filters
+        </span>
+        <i className={`fas fa-chevron-${showFilters ? 'up' : 'down'}`} aria-hidden="true" />
+      </button>
+      <section
+        id="history-filters-panel"
+        className={`history__filters ${showFilters ? 'is-expanded' : ''}`.trim()}
+        aria-label="Schedule history filters"
+      >
+        <div className="history__filter-field">
+          <label htmlFor="history-filter-role">Role</label>
+          <select
+            id="history-filter-role"
+            value={filterRole}
+            onChange={(event) => setFilterRole(event.target.value)}
+          >
+            <option value="all">All roles</option>
+            {availableRoles.map((role) => (
+              <option key={`role-filter-${role}`} value={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+        <div className="history__filter-field">
+          <label htmlFor="history-filter-status">Status</label>
+          <select
+            id="history-filter-status"
+            value={filterStatus}
+            onChange={(event) => setFilterStatus(event.target.value)}
+          >
+            {Object.entries(STATUS_FILTER_LABELS).map(([value, label]) => (
+              <option key={`status-filter-${value}`} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="history__filter-actions">
+          <button
+            type="button"
+            className="history__filter-reset"
+            onClick={resetFilters}
+            disabled={!hasActiveFilters}
+          >
+            Reset filters
+          </button>
+        </div>
+      </section>
+    </>
   );
 
   if (!schedules.length) {
@@ -198,7 +218,7 @@ export const History = () => {
             <span className="history__page-eyebrow">Schedule history</span>
             <h2>No schedules yet</h2>
             <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
-            <a href="/scheduler" className="button">
+            <a href="#/scheduler" className="button">
               Go to Builder
             </a>
           </div>

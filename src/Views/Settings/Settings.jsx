@@ -242,7 +242,7 @@ export const Settings = () => {
                     <div className="settings__hours-day">
                       <strong>{day}</strong>
                     </div>
-                    <div className="settings__hours-time">
+                    <div className="settings__hours-time settings__hours-time--open">
                       <label htmlFor={`${day}-open-time`} className="settings__hours-label">Open</label>
                       <input
                         id={`${day}-open-time`}
@@ -254,7 +254,7 @@ export const Settings = () => {
                         disabled={!hours.isOpen}
                       />
                     </div>
-                    <div className="settings__hours-time">
+                    <div className="settings__hours-time settings__hours-time--close">
                       <label htmlFor={`${day}-close-time`} className="settings__hours-label">Close</label>
                       <input
                         id={`${day}-close-time`}

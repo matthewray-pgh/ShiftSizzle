@@ -80,6 +80,29 @@
     font: inherit;
   }
 
+  &__filters-toggle {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    margin-top: 0.9rem;
+    padding: 10px 14px;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 10px;
+    background: #fff;
+    color: #1e293b;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+  }
+
   &__filters {
     margin-top: 0.9rem;
     display: grid;
@@ -527,8 +550,17 @@
       grid-template-columns: 1fr 1fr;
     }
 
+    &__filters-toggle {
+      display: flex;
+    }
+
     &__filters {
+      display: none;
       grid-template-columns: 1fr;
+
+      &.is-expanded {
+        display: grid;
+      }
     }
 
     &__filter-actions {

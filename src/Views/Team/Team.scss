@@ -1436,10 +1436,12 @@
     &__control-actions {
       width: 100%;
       margin-left: 0;
+      gap: 8px;
     }
 
     &__downloads-menu {
-      width: 100%;
+      flex: 1 1 0;
+      min-width: 0;
     }
 
     &__downloads-menu-popover {
@@ -1450,7 +1452,11 @@
 
     &__toolbar-action,
     &__primary-action {
-      flex: 1 1 auto;
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 9px 10px;
+      font-size: 0.86rem;
+      white-space: nowrap;
     }
 
     &__modal-actions {
