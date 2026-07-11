@@ -313,7 +313,7 @@ export const History = () => {
     };
   });
 
-  const schedulerLink = `/scheduler?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}`;
+  const schedulerLink = `?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}#/scheduler`;
 
   return (
     <div className="history">
