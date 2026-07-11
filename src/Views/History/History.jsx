@@ -197,9 +197,9 @@ export const History = () => {
             </span>
             <span className="history__page-eyebrow">Schedule history</span>
             <h2>No schedules yet</h2>
-            <p className="history__subhead">Save or publish a schedule in Scheduler to see it here.</p>
+            <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
             <a href="/scheduler" className="button">
-              Go to Scheduler
+              Go to Builder
             </a>
           </div>
         </ContentPanel>

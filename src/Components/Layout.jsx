@@ -13,8 +13,8 @@ export const Layout = ({ children }) => {
 
   const pageTitles = {
     "/": "Dashboard",
-    "/scheduler": "Schedules",
-    "/history": "History",
+    "/scheduler": "Builder",
+    "/history": "Schedules",
     "/team": "Team",
     "/settings": "Settings",
   };
@@ -70,17 +70,17 @@ const Navigation = ({ currentPage, testId }) => {
         <i className="fas fa-gauge" aria-hidden="true"></i>
         <span>Dashboard</span>
       </NavLink>
-      <NavLink className={getLinkClass("Schedules")} to="/scheduler">
+      <NavLink className={getLinkClass("Builder")} to="/scheduler">
         <i className="fas fa-calendar-alt" aria-hidden="true"></i>
-        <span>Schedules</span>
+        <span>Builder</span>
       </NavLink>
       <NavLink className={getLinkClass("Team")} to="/team">
         <i className="fas fa-users" aria-hidden="true"></i>
         <span>Team</span>
       </NavLink>
-      <NavLink className={getLinkClass("History")} to="/history">
+      <NavLink className={getLinkClass("Schedules")} to="/history">
         <i className="fas fa-clock-rotate-left" aria-hidden="true"></i>
-        <span>History</span>
+        <span>Schedules</span>
       </NavLink>
       <NavLink className={getLinkClass("Settings")} to="/settings">
         <i className="fas fa-cog" aria-hidden="true"></i>

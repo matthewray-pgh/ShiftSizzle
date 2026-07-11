@@ -56,7 +56,7 @@ describe('History view', () => {
     renderView(History);
 
     expect(screen.getByText('No schedules yet')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go to Scheduler' })).toHaveAttribute('href', '/scheduler');
+    expect(screen.getByRole('link', { name: 'Go to Builder' })).toHaveAttribute('href', '/scheduler');
   });
 
   it('lists saved and published schedules newest to oldest with status badges', () => {
