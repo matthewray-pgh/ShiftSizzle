@@ -155,6 +155,39 @@
   .dashboard {
     &__hero {
       flex-direction: column;
+
+      h1 {
+        font-size: 1.5rem;
+      }
+    }
+
+    &__card-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    &__metric {
+      padding: 12px 8px;
+      border-radius: 12px;
+
+      span {
+        margin-bottom: 6px;
+        font-size: 0.7rem;
+      }
+
+      strong {
+        font-size: 1.4rem;
+      }
+    }
+
+    &__two-column {
+      margin-top: 12px;
+      gap: 12px;
+    }
+
+    &__panel {
+      padding: 14px;
     }
   }
 }
