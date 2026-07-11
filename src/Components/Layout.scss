@@ -220,7 +220,7 @@ body {
 
 @media (max-width: 700px) {
   .layout {
-    grid-template-rows: 74px 1fr;
+    grid-template-rows: 56px 1fr;
 
     &__header {
       grid-template-columns: 1fr;
@@ -233,12 +233,12 @@ body {
 
     &__brand-link {
       width: 100%;
-      padding-left: 0;
+      padding: 0;
       justify-content: center;
     }
 
     &__brand-logo {
-      width: min(100%, 170px);
+      width: min(62%, 190px);
     }
 
     &__header-main {

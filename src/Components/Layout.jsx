@@ -2,6 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 
 import { useAppState } from "../state/AppState";
 import logo from "../Assets/ShiftSizzle.Logo.png";
+import logoCompact from "../Assets/ShiftSizzle.Logo.Compact.png";
 
 import "./Layout.scss";
 
@@ -26,7 +27,10 @@ export const Layout = ({ children }) => {
       <header className="layout__header">
         <div className="layout__brand">
           <NavLink className="layout__brand-link" to="/" aria-label="ShiftSizzle home">
-            <img className="layout__brand-logo" src={logo} alt="ShiftSizzle" />
+            <picture>
+              <source media="(max-width: 700px)" srcSet={logoCompact} />
+              <img className="layout__brand-logo" src={logo} alt="ShiftSizzle" />
+            </picture>
           </NavLink>
         </div>
         <div className="layout__header-main">
