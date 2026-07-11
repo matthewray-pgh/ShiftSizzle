@@ -100,7 +100,7 @@ describe('History view', () => {
     expect(screen.getByText('Cover the patio.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Edit Schedule' })).toHaveAttribute(
       'href',
-      '/scheduler?weekStart=2026-06-01&role=Manager',
+      '?weekStart=2026-06-01&role=Manager#/scheduler',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to all schedules' }));

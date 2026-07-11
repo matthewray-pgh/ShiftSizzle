@@ -233,8 +233,8 @@ export const Scheduler = () => {
 
   const scheduleStatusLabel = schedule.status === 'published' ? 'Published schedule' : 'Draft schedule';
   const historyViewLink = hasWeekRange && hasRoleSelected
-    ? `/history?range=${encodeURIComponent(`${schedule.startDate}__${schedule.endDate}`)}&role=${encodeURIComponent(schedule.selectedRole)}`
-    : '/history';
+    ? `?range=${encodeURIComponent(`${schedule.startDate}__${schedule.endDate}`)}&role=${encodeURIComponent(schedule.selectedRole)}#/history`
+    : '#/history';
 
   const heroSubhead = hasWeekRange && hasRoleSelected
     ? `Build and publish the active ${schedule.weekLabel} staffing plan for ${selectedRole} coverage.`
