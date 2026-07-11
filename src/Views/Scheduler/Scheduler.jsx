@@ -280,7 +280,7 @@ export const Scheduler = () => {
       : !currentRoleDraftExists
         ? 'Generate the first draft for this week and role.'
         : canPublish
-          ? 'Ready to publish or review in History.'
+          ? 'Ready to publish or review in Schedules.'
           : publishSummary
     : 'Set the week and role to start planning.';
 
@@ -1028,7 +1028,7 @@ export const Scheduler = () => {
             </button>
             {schedule.lastSavedAt && (
               <a href={historyViewLink} className="scheduler__shifts-link">
-                View in History
+                View in Schedules
               </a>
             )}
             <p className="scheduler__publish-bar-note">
