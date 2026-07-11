@@ -130,6 +130,7 @@ export const Team = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRosterActionsMenu, setShowRosterActionsMenu] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [expandedMemberIds, setExpandedMemberIds] = useState(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All roles');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -153,6 +154,20 @@ export const Team = () => {
 
     setSlideDir(mode === VIEW_MODES.LIST ? 'from-right' : 'from-left');
     setViewMode(mode);
+  };
+
+  const toggleMemberDetails = (employeeId) => {
+    setExpandedMemberIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(employeeId)) {
+        next.delete(employeeId);
+      } else {
+        next.add(employeeId);
+      }
+
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -543,6 +558,7 @@ export const Team = () => {
             id="team-filters-panel"
             className={`team__filters-panel ${showFilters ? 'is-expanded' : ''}`.trim()}
           >
+           <div className="team__filters-panel-inner">
             <div className="team__filter-group team__filter-group--search">
               <label className="team__filter-label" htmlFor="team-search-input">Search</label>
               <div className="team__search-shell">
@@ -627,6 +643,7 @@ export const Team = () => {
                 </div>
               </div>
             )}
+           </div>
           </div>
         )}
       </ContentPanel>
@@ -707,12 +724,24 @@ export const Team = () => {
                   <div className="team__member-shifts">{formatShiftsPerWeek(emp.shiftsPerWeek)}</div>
                   <div className="team__member-status">Status: {renderStatusBadge(emp.status)}</div>
                 </div>
-                <details className="team__member-more">
-                  <summary className="team__member-more-toggle">More details</summary>
-                  <div className="team__member-contact">📞 {emp.contact || 'N/A'}</div>
-                  <div className="team__member-email">✉️ {emp.email || 'N/A'}</div>
-                  <div className="team__member-availability">Availability: {getAvailabilitySummary(emp.availability)}</div>
-                </details>
+                <div className={`team__member-more ${expandedMemberIds.has(emp.id) ? 'is-expanded' : ''}`.trim()}>
+                  <button
+                    type="button"
+                    className="team__member-more-toggle"
+                    onClick={() => toggleMemberDetails(emp.id)}
+                    aria-expanded={expandedMemberIds.has(emp.id)}
+                    aria-controls={`team-member-more-${emp.id}`}
+                  >
+                    More details
+                  </button>
+                  <div className="team__member-more-content" id={`team-member-more-${emp.id}`}>
+                    <div className="team__member-more-inner">
+                      <div className="team__member-contact">📞 {emp.contact || 'N/A'}</div>
+                      <div className="team__member-email">✉️ {emp.email || 'N/A'}</div>
+                      <div className="team__member-availability">Availability: {getAvailabilitySummary(emp.availability)}</div>
+                    </div>
+                  </div>
+                </div>
                 {renderEmployeeActions(emp)}
               </div>
             </div>

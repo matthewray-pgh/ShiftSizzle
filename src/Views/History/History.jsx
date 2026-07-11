@@ -168,40 +168,42 @@ export const History = () => {
         className={`history__filters ${showFilters ? 'is-expanded' : ''}`.trim()}
         aria-label="Schedule history filters"
       >
-        <div className="history__filter-field">
-          <label htmlFor="history-filter-role">Role</label>
-          <select
-            id="history-filter-role"
-            value={filterRole}
-            onChange={(event) => setFilterRole(event.target.value)}
-          >
-            <option value="all">All roles</option>
-            {availableRoles.map((role) => (
-              <option key={`role-filter-${role}`} value={role}>{role}</option>
-            ))}
-          </select>
-        </div>
-        <div className="history__filter-field">
-          <label htmlFor="history-filter-status">Status</label>
-          <select
-            id="history-filter-status"
-            value={filterStatus}
-            onChange={(event) => setFilterStatus(event.target.value)}
-          >
-            {Object.entries(STATUS_FILTER_LABELS).map(([value, label]) => (
-              <option key={`status-filter-${value}`} value={value}>{label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="history__filter-actions">
-          <button
-            type="button"
-            className="history__filter-reset"
-            onClick={resetFilters}
-            disabled={!hasActiveFilters}
-          >
-            Reset filters
-          </button>
+        <div className="history__filters-inner">
+          <div className="history__filter-field">
+            <label htmlFor="history-filter-role">Role</label>
+            <select
+              id="history-filter-role"
+              value={filterRole}
+              onChange={(event) => setFilterRole(event.target.value)}
+            >
+              <option value="all">All roles</option>
+              {availableRoles.map((role) => (
+                <option key={`role-filter-${role}`} value={role}>{role}</option>
+              ))}
+            </select>
+          </div>
+          <div className="history__filter-field">
+            <label htmlFor="history-filter-status">Status</label>
+            <select
+              id="history-filter-status"
+              value={filterStatus}
+              onChange={(event) => setFilterStatus(event.target.value)}
+            >
+              {Object.entries(STATUS_FILTER_LABELS).map(([value, label]) => (
+                <option key={`status-filter-${value}`} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="history__filter-actions">
+            <button
+              type="button"
+              className="history__filter-reset"
+              onClick={resetFilters}
+              disabled={!hasActiveFilters}
+            >
+              Reset filters
+            </button>
+          </div>
         </div>
       </section>
     </>
@@ -229,7 +231,7 @@ export const History = () => {
 
   if (!selectedEntry) {
     return (
-      <div className="history">
+      <div className="history" key="list">
         <ContentPanel>
           <div className="history__page-header">
             <div className="history__page-copy">
@@ -336,7 +338,7 @@ export const History = () => {
   const schedulerLink = `?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}#/scheduler`;
 
   return (
-    <div className="history">
+    <div className="history" key={selectedEntry.id}>
       <ContentPanel>
         <div className="history__page-header">
           <div className="history__page-copy">
