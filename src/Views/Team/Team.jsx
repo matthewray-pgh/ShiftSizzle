@@ -718,8 +718,11 @@ export const Team = () => {
                     Edit
                   </button>
                 </div>
-                <div className="team__member-title">{emp.title}</div>
-                <div className="team__member-role">{emp.role}</div>
+                <div className="team__member-role-row">
+                  {emp.title && <span className="team__member-title">{emp.title}</span>}
+                  {emp.title && emp.role && <span className="team__member-role-sep" aria-hidden="true">&middot;</span>}
+                  <span className="team__member-role">{emp.role}</span>
+                </div>
                 <div className="team__member-meta-row">
                   <div className="team__member-shifts">{formatShiftsPerWeek(emp.shiftsPerWeek)}</div>
                   <div className="team__member-status">Status: {renderStatusBadge(emp.status)}</div>

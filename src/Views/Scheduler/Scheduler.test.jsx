@@ -428,7 +428,7 @@ describe('Scheduler view', () => {
         weekLabel: '',
       },
     }));
-    window.history.replaceState({}, '', '/scheduler?weekStart=2026-05-25&role=Manager');
+    window.history.replaceState({}, '', '/schedule/build?weekStart=2026-05-25&role=Manager');
 
     render(
       <AppStateProvider>

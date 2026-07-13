@@ -220,7 +220,7 @@ export const History = () => {
             <span className="history__page-eyebrow">Schedule history</span>
             <h2>No schedules yet</h2>
             <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
-            <a href="#/scheduler" className="button">
+            <a href="#/schedule/build" className="button">
               Go to Builder
             </a>
           </div>
@@ -239,6 +239,10 @@ export const History = () => {
               <h2>All schedules</h2>
               <p className="history__subhead">Every schedule you've saved or published, newest first.</p>
             </div>
+            <a href="#/schedule/build" className="button history__new-schedule-action">
+              <i className="fas fa-plus" aria-hidden="true" />
+              New schedule
+            </a>
           </div>
 
           {filterControls}
@@ -335,7 +339,7 @@ export const History = () => {
     };
   });
 
-  const schedulerLink = `?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}#/scheduler`;
+  const schedulerLink = `?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}#/schedule/build`;
 
   return (
     <div className="history" key={selectedEntry.id}>

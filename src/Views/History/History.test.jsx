@@ -9,7 +9,7 @@ const STORAGE_KEY = 'shiftsizzle.app-state.v1';
 
 beforeEach(() => {
   window.localStorage.clear();
-  window.history.replaceState({}, '', '/history');
+  window.history.replaceState({}, '', '/schedule');
 });
 
 const managerRecord = {
@@ -56,7 +56,7 @@ describe('History view', () => {
     renderView(History);
 
     expect(screen.getByText('No schedules yet')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go to Builder' })).toHaveAttribute('href', '#/scheduler');
+    expect(screen.getByRole('link', { name: 'Go to Builder' })).toHaveAttribute('href', '#/schedule/build');
   });
 
   it('lists saved and published schedules newest to oldest with status badges', () => {
@@ -100,7 +100,7 @@ describe('History view', () => {
     expect(screen.getByText('Cover the patio.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Edit Schedule' })).toHaveAttribute(
       'href',
-      '?weekStart=2026-06-01&role=Manager#/scheduler',
+      '?weekStart=2026-06-01&role=Manager#/schedule/build',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to all schedules' }));
