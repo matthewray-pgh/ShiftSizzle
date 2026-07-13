@@ -37,6 +37,11 @@
     }
   }
 
+  &__new-schedule-action {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
   &__page-eyebrow {
     display: inline-flex;
     margin-bottom: 0.35rem;
@@ -583,6 +588,10 @@
       align-items: stretch;
     }
 
+    &__new-schedule-action {
+      justify-content: center;
+    }
+
     &__history-controls {
       grid-template-columns: 1fr 1fr;
     }
@@ -605,6 +614,11 @@
       grid-template-columns: 1fr;
       min-height: 0;
       overflow: hidden;
+      padding: 1rem;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
     }
 
     &__filter-actions {

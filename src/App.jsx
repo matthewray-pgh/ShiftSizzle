@@ -8,8 +8,8 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/scheduler" element={<Scheduler />} />
-        <Route path="/history" element={<History />} />
+        <Route path="/schedule" element={<History />} />
+        <Route path="/schedule/build" element={<Scheduler />} />
         <Route path="/team" element={<Team />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>

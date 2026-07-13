@@ -14,8 +14,8 @@ export const Layout = ({ children }) => {
 
   const pageTitles = {
     "/": "Dashboard",
-    "/scheduler": "Builder",
-    "/history": "Schedules",
+    "/schedule": "Schedules",
+    "/schedule/build": "Builder",
     "/team": "Team",
     "/settings": "Settings",
   };
@@ -49,44 +49,38 @@ export const Layout = ({ children }) => {
 
       <main className="layout__main">
         <section className="layout__sidebar-nav">
-          <Navigation currentPage={currentPage} testId="sidebar-nav" />
+          <Navigation testId="sidebar-nav" />
         </section>
-        
+
         <section className="layout__main--content">
           {children}
         </section>
       </main>
       <footer className="layout__footer">
-        <Navigation currentPage={currentPage} testId="footer-mobile-nav" />
+        <Navigation testId="footer-mobile-nav" />
       </footer>
     </div>
   );
 };
 
-const Navigation = ({ currentPage, testId }) => {
-  const getLinkClass = (page) => {
-    return currentPage === page ? "layout__nav--link active" : "layout__nav--link";
-  };
+const Navigation = ({ testId }) => {
+  const getLinkClass = ({ isActive }) => (isActive ? "layout__nav--link active" : "layout__nav--link");
 
   return (
     <nav className="layout__nav" data-testid={testId}>
-      <NavLink className={getLinkClass("Dashboard")} to="/">
+      <NavLink className={getLinkClass} to="/" end>
         <i className="fas fa-gauge" aria-hidden="true"></i>
         <span>Dashboard</span>
       </NavLink>
-      <NavLink className={getLinkClass("Builder")} to="/scheduler">
-        <i className="fas fa-calendar-alt" aria-hidden="true"></i>
-        <span>Builder</span>
-      </NavLink>
-      <NavLink className={getLinkClass("Team")} to="/team">
-        <i className="fas fa-users" aria-hidden="true"></i>
-        <span>Team</span>
-      </NavLink>
-      <NavLink className={getLinkClass("Schedules")} to="/history">
+      <NavLink className={getLinkClass} to="/schedule">
         <i className="fas fa-clock-rotate-left" aria-hidden="true"></i>
         <span>Schedules</span>
       </NavLink>
-      <NavLink className={getLinkClass("Settings")} to="/settings">
+      <NavLink className={getLinkClass} to="/team">
+        <i className="fas fa-users" aria-hidden="true"></i>
+        <span>Team</span>
+      </NavLink>
+      <NavLink className={getLinkClass} to="/settings">
         <i className="fas fa-cog" aria-hidden="true"></i>
         <span>Settings</span>
       </NavLink>
