@@ -17,7 +17,7 @@ describe('ShiftSizzle application', () => {
 
     expect(screen.getByText('Hello, Jennifer')).toBeInTheDocument();
     expect(screen.getByText('Active employees')).toBeInTheDocument();
-    expect(screen.getAllByText('Schedules').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Schedule').length).toBeGreaterThan(0);
   });
 
   it('renders the team management view on the team route', () => {

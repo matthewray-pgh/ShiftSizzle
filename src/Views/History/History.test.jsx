@@ -56,7 +56,9 @@ describe('History view', () => {
     renderView(History);
 
     expect(screen.getByText('No schedules yet')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go to Builder' })).toHaveAttribute('href', '#/schedule/build');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Builder' }));
+    expect(window.location.hash).toBe('#/schedule/build');
   });
 
   it('lists saved and published schedules newest to oldest with status badges', () => {
@@ -98,10 +100,10 @@ describe('History view', () => {
     expect(screen.getByRole('heading', { name: 'Jun 1 - Jun 7, 2026' })).toBeInTheDocument();
     expect(screen.getByText('1 assigned slots across 1 team members.')).toBeInTheDocument();
     expect(screen.getByText('Cover the patio.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Edit Schedule' })).toHaveAttribute(
-      'href',
-      '?weekStart=2026-06-01&role=Manager#/schedule/build',
-    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Schedule' }));
+    expect(window.location.search).toBe('?weekStart=2026-06-01&role=Manager');
+    expect(window.location.hash).toBe('#/schedule/build');
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to all schedules' }));
     expect(screen.getByText('All schedules')).toBeInTheDocument();
