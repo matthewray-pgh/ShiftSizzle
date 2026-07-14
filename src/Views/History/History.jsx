@@ -25,6 +25,16 @@ const getInitialQueryValue = (key, fallback = '') => {
   return value ?? fallback;
 };
 
+const redirectToBuilder = (queryString = '') => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const search = queryString ? `?${queryString}` : '';
+  window.history.replaceState({}, '', `${window.location.pathname}${search}${window.location.hash}`);
+  window.location.hash = '/schedule/build';
+};
+
 const formatTimestamp = (value) => new Date(value).toLocaleString([], {
   month: 'short',
   day: 'numeric',
@@ -220,9 +230,9 @@ export const History = () => {
             <span className="history__page-eyebrow">Schedule history</span>
             <h2>No schedules yet</h2>
             <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
-            <a href="#/schedule/build" className="button">
+            <button type="button" className="button" onClick={() => redirectToBuilder()}>
               Go to Builder
-            </a>
+            </button>
           </div>
         </ContentPanel>
       </div>
@@ -239,10 +249,14 @@ export const History = () => {
               <h2>All schedules</h2>
               <p className="history__subhead">Every schedule you've saved or published, newest first.</p>
             </div>
-            <a href="#/schedule/build" className="button history__new-schedule-action">
+            <button
+              type="button"
+              className="button history__new-schedule-action"
+              onClick={() => redirectToBuilder()}
+            >
               <i className="fas fa-plus" aria-hidden="true" />
               New schedule
-            </a>
+            </button>
           </div>
 
           {filterControls}
@@ -339,7 +353,7 @@ export const History = () => {
     };
   });
 
-  const schedulerLink = `?weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}#/schedule/build`;
+  const schedulerQuery = `weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}`;
 
   return (
     <div className="history" key={selectedEntry.id}>
@@ -362,9 +376,9 @@ export const History = () => {
             <button type="button" className="button-outline" onClick={() => setSelectedId('')}>
               Back to all schedules
             </button>
-            <a className="button" href={schedulerLink}>
+            <button type="button" className="button" onClick={() => redirectToBuilder(schedulerQuery)}>
               Edit Schedule
-            </a>
+            </button>
           </div>
         </section>
       </ContentPanel>
