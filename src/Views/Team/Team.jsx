@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button, ContentPanel, InputField, StatusBadge } from '../../Components';
-import { BASE_TEAM_ROLES, DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
+import { DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
 import {
   buildRosterImportPreview,
   createBlankRosterTemplateCsv,
@@ -45,7 +45,7 @@ const createEmptyForm = (teamRoles, shiftTypes) => ({
   id: null,
   name: '',
   title: '',
-  role: teamRoles[0] ?? BASE_TEAM_ROLES.MANAGER,
+  roles: [],
   contact: '',
   email: '',
   shiftsPerWeek: 5,
@@ -54,7 +54,7 @@ const createEmptyForm = (teamRoles, shiftTypes) => ({
 
 const createEmptyTouched = () => ({
   name: false,
-  role: false,
+  roles: false,
   email: false,
 });
 
@@ -62,8 +62,8 @@ const validateField = (field, value) => {
   switch (field) {
     case 'name':
       return value.trim() ? '' : 'Name is required.';
-    case 'role':
-      return value ? '' : 'Role is required.';
+    case 'roles':
+      return Array.isArray(value) && value.length ? '' : 'Select at least one role.';
     case 'email': {
       if (!value.trim()) {
         return '';
@@ -78,7 +78,7 @@ const validateField = (field, value) => {
 
 const validateForm = (form) => ({
   name: validateField('name', form.name),
-  role: validateField('role', form.role),
+  roles: validateField('roles', form.roles),
   email: validateField('email', form.email),
 });
 
@@ -112,6 +112,12 @@ const getAvailabilitySummary = (availability = {}) => {
     .map(({ label, days }) => `${label} (${days.join(', ')})`)
     .join(' · ');
 };
+
+const getAvailabilityDayFlags = (availability = {}) => DAYS.map((day) => ({
+  day,
+  short: day.slice(0, 2),
+  shifts: availability[day] ?? [],
+}));
 
   const formatShiftsPerWeek = (shiftsPerWeek = 0) => `${shiftsPerWeek} ${shiftsPerWeek === 1 ? 'shift' : 'shifts'}/week`;
 
@@ -222,6 +228,20 @@ export const Team = () => {
     });
   };
 
+  const toggleFormRole = (role) => {
+    setTouched((currentTouched) => ({ ...currentTouched, roles: true }));
+    setForm((currentForm) => {
+      const hasRole = currentForm.roles.includes(role);
+      const nextRoles = hasRole
+        ? currentForm.roles.filter((currentRole) => currentRole !== role)
+        : [...currentForm.roles, role];
+
+      setFormErrors((currentErrors) => ({ ...currentErrors, roles: validateField('roles', nextRoles) }));
+
+      return { ...currentForm, roles: nextRoles };
+    });
+  };
+
   const handleFieldBlur = (field) => {
     setTouched((currentTouched) => ({ ...currentTouched, [field]: true }));
     setFormErrors((currentErrors) => ({
@@ -243,7 +263,7 @@ export const Team = () => {
     setFormErrors(nextErrors);
     setTouched({
       name: true,
-      role: true,
+      roles: true,
       email: true,
     });
 
@@ -257,7 +277,7 @@ export const Team = () => {
         id: form.id ?? Date.now(),
         name: form.name.trim(),
         title: form.title.trim(),
-        role: form.role,
+        roles: form.roles,
         contact: form.contact.trim(),
         email: form.email.trim(),
         shiftsPerWeek: Math.max(0, Number(form.shiftsPerWeek) || 0),
@@ -276,7 +296,7 @@ export const Team = () => {
       .join(' ')
       .toLowerCase()
       .includes(normalizedSearchTerm);
-    const matchesRole = roleFilter === 'All roles' || employee.role === roleFilter;
+    const matchesRole = roleFilter === 'All roles' || employee.roles.includes(roleFilter);
     const matchesStatus = statusFilter === 'all' || employee.status === statusFilter;
 
     return matchesSearch && matchesRole && matchesStatus;
@@ -306,7 +326,7 @@ export const Team = () => {
       id: employee.id,
       name: employee.name,
       title: employee.title,
-      role: employee.role,
+      roles: employee.roles,
       contact: employee.contact,
       email: employee.email,
       shiftsPerWeek: employee.shiftsPerWeek ?? 5,
@@ -472,6 +492,29 @@ export const Team = () => {
   };
 
   const renderStatusBadge = (status) => <StatusBadge status={status} />;
+
+  const renderAvailabilityStrip = (availability, idPrefix) => {
+    const days = getAvailabilityDayFlags(availability);
+    const availableDays = days.filter((d) => d.shifts.length > 0);
+    const summaryLabel = availableDays.length
+      ? `Available ${availableDays.map((d) => d.day).join(', ')}`
+      : 'Unavailable all week';
+
+    return (
+      <div className="team__availability-strip" role="img" aria-label={summaryLabel}>
+        {days.map(({ day, short, shifts }) => (
+          <span
+            key={`${idPrefix}-${day}`}
+            className={`team__availability-strip-day ${shifts.length ? 'is-available' : ''}`.trim()}
+            title={`${day}: ${shifts.length ? shifts.join(', ') : 'Unavailable'}`}
+            aria-hidden="true"
+          >
+            {short}
+          </span>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="team">
@@ -700,6 +743,12 @@ export const Team = () => {
                     <ellipse cx="20" cy="29" rx="10" ry="7" fill="#bdbdbd" />
                   </svg>
                 </span>
+                <span
+                  className={`team__member-status-dot team__member-status-dot--${emp.status}`}
+                  title={`Status: ${emp.status === 'archived' ? 'Archived' : 'Active'}`}
+                  role="img"
+                  aria-label={`Status: ${emp.status === 'archived' ? 'Archived' : 'Active'}`}
+                />
               </div>
               <div className="team__member-details">
                 <div className="team__member-header">
@@ -720,12 +769,14 @@ export const Team = () => {
                 </div>
                 <div className="team__member-role-row">
                   {emp.title && <span className="team__member-title">{emp.title}</span>}
-                  {emp.title && emp.role && <span className="team__member-role-sep" aria-hidden="true">&middot;</span>}
-                  <span className="team__member-role">{emp.role}</span>
+                  {emp.title && emp.roles.length > 0 && <span className="team__member-role-sep" aria-hidden="true">&middot;</span>}
+                  <span className="team__member-role">{emp.roles.join(', ')}</span>
                 </div>
                 <div className="team__member-meta-row">
                   <div className="team__member-shifts">{formatShiftsPerWeek(emp.shiftsPerWeek)}</div>
-                  <div className="team__member-status">Status: {renderStatusBadge(emp.status)}</div>
+                </div>
+                <div className="team__member-availability-row">
+                  {renderAvailabilityStrip(emp.availability, `card-${emp.id}`)}
                 </div>
                 <div className={`team__member-more ${expandedMemberIds.has(emp.id) ? 'is-expanded' : ''}`.trim()}>
                   <button
@@ -739,9 +790,14 @@ export const Team = () => {
                   </button>
                   <div className="team__member-more-content" id={`team-member-more-${emp.id}`}>
                     <div className="team__member-more-inner">
-                      <div className="team__member-contact">📞 {emp.contact || 'N/A'}</div>
-                      <div className="team__member-email">✉️ {emp.email || 'N/A'}</div>
-                      <div className="team__member-availability">Availability: {getAvailabilitySummary(emp.availability)}</div>
+                      <div className="team__member-contact">
+                        <i className="fas fa-phone" aria-hidden="true" />
+                        {emp.contact || 'N/A'}
+                      </div>
+                      <div className="team__member-email">
+                        <i className="fas fa-envelope" aria-hidden="true" />
+                        {emp.email || 'N/A'}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -756,7 +812,7 @@ export const Team = () => {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Role</th>
+                  <th>Role(s)</th>
                   <th>Status</th>
                   <th>Contact</th>
                   <th>Shifts / Week</th>
@@ -771,14 +827,22 @@ export const Team = () => {
                       <strong>{employee.name}</strong>
                       <div className="team__table-subtitle">{employee.title}</div>
                     </td>
-                    <td>{employee.role}</td>
+                    <td>{employee.roles.join(', ')}</td>
                     <td className="team__table-status">{renderStatusBadge(employee.status)}</td>
                     <td>
-                      <div>{employee.contact || 'N/A'}</div>
-                      <div className="team__table-subtitle">{employee.email || 'N/A'}</div>
+                      <div className="team__table-contact">
+                        <i className="fas fa-phone" aria-hidden="true" />
+                        {employee.contact || 'N/A'}
+                      </div>
+                      <div className="team__table-subtitle">
+                        <i className="fas fa-envelope" aria-hidden="true" />
+                        {employee.email || 'N/A'}
+                      </div>
                     </td>
                     <td className="team__table-shifts">{formatShiftsPerWeek(employee.shiftsPerWeek)}</td>
-                    <td className="team__table-availability">{getAvailabilitySummary(employee.availability)}</td>
+                    <td className="team__table-availability">
+                      {renderAvailabilityStrip(employee.availability, `table-${employee.id}`)}
+                    </td>
                     <td>
                       <div className="team__table-actions">
                         <button
@@ -858,17 +922,23 @@ export const Team = () => {
                       value={form.title}
                       onChange={(value) => updateFormField('title', value)}
                     />
-                    <InputField
-                      label="Role"
-                      name="role"
-                      value={form.role}
-                      onChange={(value) => updateFormField('role', value)}
-                      type="select"
-                      options={teamRoles}
-                      onBlur={() => handleFieldBlur('role')}
-                      aria-invalid={Boolean(touched.role && formErrors.role)}
-                    />
-                    {touched.role && formErrors.role && <p className="team__field-error">{formErrors.role}</p>}
+                    <div className="input-field">
+                      <label>Roles</label>
+                      <div className="team__role-chips" role="group" aria-label="Roles">
+                        {teamRoles.map((role) => (
+                          <button
+                            key={role}
+                            type="button"
+                            className={`team__shift-chip ${form.roles.includes(role) ? 'is-active' : ''}`.trim()}
+                            onClick={() => toggleFormRole(role)}
+                            aria-pressed={form.roles.includes(role)}
+                          >
+                            {role}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {touched.roles && formErrors.roles && <p className="team__field-error">{formErrors.roles}</p>}
                     <InputField
                       label="Contact"
                       name="contact"
@@ -1028,7 +1098,7 @@ export const Team = () => {
                       onChange={handleImportFileChange}
                     />
                     <p className="team__import-helper">
-                      Columns: Name, Title, Role, Contact, Email, Status. Availability isn&apos;t imported yet — set it per employee afterward.
+                      Columns: Name, Title, Roles, Contact, Email, Status. Separate multiple roles with a semicolon (e.g. &quot;Bartender;Server&quot;). Availability isn&apos;t imported yet — set it per employee afterward.
                     </p>
                     {importFileName && <p className="team__import-file-name">Loaded {importFileName}</p>}
                   </div>
@@ -1077,7 +1147,7 @@ export const Team = () => {
                         <tr>
                           <th>Row</th>
                           <th>Name</th>
-                          <th>Role</th>
+                          <th>Role(s)</th>
                           <th>Action</th>
                           <th>Notes</th>
                         </tr>
@@ -1090,7 +1160,7 @@ export const Team = () => {
                               <strong>{row.values.name || 'Missing name'}</strong>
                               {row.values.email && <div className="team__table-subtitle">{row.values.email}</div>}
                             </td>
-                            <td>{row.values.role || 'Missing role'}</td>
+                            <td>{row.values.roles?.length ? row.values.roles.join(', ') : 'Missing role'}</td>
                             <td>
                               <span className={`team__import-pill team__import-pill--${row.action}`.trim()}>{row.action}</span>
                             </td>

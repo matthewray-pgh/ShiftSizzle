@@ -296,7 +296,7 @@ export const History = () => {
   }
 
   const roleEmployees = employees.filter(
-    (employee) => employee.status !== 'archived' && employee.role === selectedEntry.role
+    (employee) => employee.status !== 'archived' && employee.roles.includes(selectedEntry.role)
   );
   const assignments = selectedEntry.assignments ?? {};
   const requirements = selectedEntry.requirements ?? {};
