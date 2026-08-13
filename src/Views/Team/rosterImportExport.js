@@ -1,4 +1,5 @@
-const IMPORTABLE_HEADERS = ['name', 'title', 'role', 'contact', 'email', 'status'];
+const IMPORTABLE_HEADERS = ['name', 'title', 'roles', 'contact', 'email', 'status'];
+const ROLES_DELIMITER = ';';
 const VALID_STATUSES = new Set(['active', 'archived']);
 
 const normalizeHeader = (header = '') => header.trim().toLowerCase().replace(/[^a-z]/g, '');
@@ -75,13 +76,18 @@ const createRowMatchKey = ({ name, email }) => {
   return null;
 };
 
+const splitRoles = (rolesCell = '') => rolesCell
+  .split(ROLES_DELIMITER)
+  .map((token) => token.trim())
+  .filter(Boolean);
+
 export const serializeRosterCsv = (employees) => {
   const headerRow = IMPORTABLE_HEADERS.join(',');
   const dataRows = employees.map((employee) => (
     [
       employee.name,
       employee.title,
-      employee.role,
+      (employee.roles ?? []).join(ROLES_DELIMITER),
       employee.contact,
       employee.email,
       employee.status,
@@ -95,7 +101,7 @@ export const serializeRosterCsv = (employees) => {
 
 export const createBlankRosterTemplateCsv = () => [
   IMPORTABLE_HEADERS.join(','),
-  'Jane Smith,Shift Lead,Server,(555) 010-2000,jane@example.com,active',
+  'Jane Smith,Shift Lead,Server;Bartender,(555) 010-2000,jane@example.com,active',
 ].join('\n');
 
 export const parseRosterCsv = (text, validRoles) => {
@@ -110,7 +116,13 @@ export const parseRosterCsv = (text, validRoles) => {
 
   const [headerRow, ...dataRows] = parsedRows;
   const headerIndexes = new Map(headerRow.map((header, index) => [normalizeHeader(header), index]));
-  const missingHeaders = ['name', 'role'].filter((header) => !headerIndexes.has(header));
+  // Accept the legacy singular "role" header too, so a roster exported
+  // before multi-role support still imports cleanly.
+  const hasRolesHeader = headerIndexes.has('roles') || headerIndexes.has('role');
+  const missingHeaders = [
+    ...(headerIndexes.has('name') ? [] : ['name']),
+    ...(hasRolesHeader ? [] : ['roles']),
+  ];
 
   if (missingHeaders.length) {
     return {
@@ -126,7 +138,7 @@ export const parseRosterCsv = (text, validRoles) => {
       const getCell = (header) => row[headerIndexes.get(normalizeHeader(header))] ?? '';
       const name = getCell('name').trim();
       const title = getCell('title').trim();
-      const roleInput = getCell('role').trim();
+      const rolesInput = splitRoles(getCell('roles') || getCell('role'));
       const contact = getCell('contact').trim();
       const email = getCell('email').trim();
       const statusInput = getCell('status').trim().toLowerCase();
@@ -136,14 +148,14 @@ export const parseRosterCsv = (text, validRoles) => {
         errors.push('Name is required.');
       }
 
-      if (!roleInput) {
-        errors.push('Role is required.');
+      if (!rolesInput.length) {
+        errors.push('At least one role is required.');
       }
 
-      const role = roleLookup.get(roleInput.toLowerCase());
+      const matchedRoles = rolesInput.map((role) => roleLookup.get(role.toLowerCase())).filter(Boolean);
 
-      if (roleInput && !role) {
-        errors.push('Role must match one of the supported team roles.');
+      if (rolesInput.length && matchedRoles.length !== rolesInput.length) {
+        errors.push('Every role must match one of the supported team roles.');
       }
 
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -162,7 +174,7 @@ export const parseRosterCsv = (text, validRoles) => {
         values: {
           name,
           title,
-          role: role ?? roleInput,
+          roles: matchedRoles.length === rolesInput.length ? matchedRoles : rolesInput,
           contact,
           email,
           status,

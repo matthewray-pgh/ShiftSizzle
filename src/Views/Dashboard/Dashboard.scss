@@ -114,7 +114,7 @@
 
   &__two-column {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
     margin-top: 16px;
   }
@@ -183,6 +183,74 @@
       text-align: right;
     }
   }
+
+  // ---- My Schedule: slim personal panel, sits in the two-column grid
+  // alongside Manager Notes / Business Hours / Publish Status rather than
+  // spanning full width. Same background treatment as &--hours so the two
+  // "reference" panels read as one visual family. ----
+  &__panel--myschedule {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(191, 219, 254, 0.3) 100%);
+  }
+
+  &__myschedule-empty {
+    margin: 0;
+    color: styles.$text-secondary;
+    font-size: 0.88rem;
+    line-height: 1.4;
+  }
+
+  // Same shape as &__hours-list/&__hours-item: grid of rows, each a flex
+  // baseline pair with a divider (dropped on the last row).
+  &__myschedule-rows {
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  &__myschedule-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+
+    &:last-child {
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+  }
+
+  &__myschedule-day {
+    min-width: 4.5rem;
+    color: #14213d;
+    font-weight: 700;
+  }
+
+  &__schedule-day-shifts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+    color: styles.$text-secondary;
+    text-align: right;
+  }
+
+  &__schedule-chip {
+    &:not(:last-child)::after {
+      content: ',';
+    }
+  }
+}
+
+@media (max-width: 1024px) {
+  .dashboard {
+    &__two-column {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
 }
 
 @media (max-width: 700px) {
@@ -216,6 +284,7 @@
     }
 
     &__two-column {
+      grid-template-columns: repeat(1, minmax(0, 1fr));
       margin-top: 12px;
       gap: 12px;
     }
