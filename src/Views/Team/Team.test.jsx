@@ -1,24 +1,39 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AppStateProvider } from '../../state/AppState';
 import { renderView } from '../../test/renderView';
 import { Team } from './Team';
 
-const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+vi.mock('../../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
+
+const { supabase } = await import('../../lib/supabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
+
+beforeEach(() => {
+  resetFakeSupabase();
+});
 
 describe('Team view', () => {
-  it('renders the team page', () => {
-    renderView(Team);
+  it('renders the team page', async () => {
+    await renderView(Team);
 
     expect(screen.getByText('Add Employee')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search employees')).toBeInTheDocument();
   });
 
-  it('can archive and reactivate a team member', () => {
+  it('can archive and reactivate a team member', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    renderView(Team);
+    await renderView(Team);
 
     fireEvent.click(screen.getAllByText('Archive')[0]);
     fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
@@ -32,10 +47,10 @@ describe('Team view', () => {
     confirmSpy.mockRestore();
   });
 
-  it('does not archive a team member when confirmation is cancelled', () => {
+  it('does not archive a team member when confirmation is cancelled', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    renderView(Team);
+    await renderView(Team);
 
     fireEvent.click(screen.getAllByText('Archive')[0]);
     fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
@@ -45,8 +60,8 @@ describe('Team view', () => {
     confirmSpy.mockRestore();
   });
 
-  it('filters team members by role', () => {
-    renderView(Team);
+  it('filters team members by role', async () => {
+    await renderView(Team);
 
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Bartender' } });
 
@@ -54,16 +69,20 @@ describe('Team view', () => {
     expect(screen.queryByText('Jen Ray')).not.toBeInTheDocument();
   });
 
-  it('shows counts in the status control', () => {
-    renderView(Team);
+  it('shows counts in the status control', async () => {
+    await renderView(Team);
 
     expect(screen.getByRole('button', { name: /Active 7/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Archived 0/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /All 7/ })).toBeInTheDocument();
   });
 
-  it('shows shifts per week in both card and list roster views', () => {
-    renderView(Team);
+  it('shows shifts per week in both card and list roster views', async () => {
+    await renderView(Team);
+
+    // List is the default roster view — switch to Card first to check its
+    // rendering too.
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
 
     const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
 
@@ -79,9 +98,13 @@ describe('Team view', () => {
     expect(within(jenRow).getByText('5 shifts/week')).toBeInTheDocument();
   });
 
-  it('persists day-specific availability updates when editing a team member', () => {
-    renderView(Team);
+  it('persists day-specific availability updates when editing a team member', async () => {
+    await renderView(Team);
 
+    // List is the default roster view — the per-employee "Edit {name}"
+    // accessible name (and the .team__member-panel this test reads from
+    // afterward) only exist in Card view.
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
     fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Sunday Open' }));
@@ -92,11 +115,14 @@ describe('Team view', () => {
     const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
 
     expect(jenCard).not.toBeNull();
-    expect(within(jenCard).getByText(/Availability: Open, Mid, Close \(Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
+    // The card no longer spells out shift types in a text summary — it
+    // shows a compact per-day availability strip instead, whose
+    // accessible name lists which days have any availability at all.
+    expect(within(jenCard).getByRole('img', { name: 'Available Monday, Tuesday, Wednesday, Thursday, Friday, Saturday' })).toBeInTheDocument();
   });
 
-  it('switches between details and availability tabs in the editor', () => {
-    renderView(Team);
+  it('switches between details and availability tabs in the editor', async () => {
+    await renderView(Team);
 
     fireEvent.click(screen.getByText('Add Employee'));
 
@@ -110,8 +136,8 @@ describe('Team view', () => {
     expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
   });
 
-  it('shows a compact availability summary on the details tab', () => {
-    renderView(Team);
+  it('shows a compact availability summary on the details tab', async () => {
+    await renderView(Team);
 
     fireEvent.click(screen.getByText('Add Employee'));
 
@@ -122,9 +148,10 @@ describe('Team view', () => {
     expect(within(availabilitySummary).getByText(/Open, Mid, Close \(Sun, Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
   });
 
-  it('applies availability quick actions from the availability tab', () => {
-    renderView(Team);
+  it('applies availability quick actions from the availability tab', async () => {
+    await renderView(Team);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
     fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Clear week' }));
@@ -133,12 +160,15 @@ describe('Team view', () => {
     const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
 
     expect(jenCard).not.toBeNull();
-    expect(within(jenCard).getByText('Availability: Unavailable all week')).toBeInTheDocument();
+    // The card no longer spells out shift types in a text summary — it
+    // shows a compact per-day availability strip instead.
+    expect(within(jenCard).getByRole('img', { name: 'Unavailable all week' })).toBeInTheDocument();
   });
 
-  it('selects every shift in the availability tab with the select all quick action', () => {
-    renderView(Team);
+  it('selects every shift in the availability tab with the select all quick action', async () => {
+    await renderView(Team);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
     fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Clear week' }));
@@ -148,25 +178,21 @@ describe('Team view', () => {
     const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
 
     expect(jenCard).not.toBeNull();
-    expect(within(jenCard).getByText(/Availability: Open, Mid, Close \(Sun, Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
+    // The card no longer spells out shift types in a text summary — it
+    // shows a compact per-day availability strip instead.
+    expect(within(jenCard).getByRole('img', { name: 'Available Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday' })).toBeInTheDocument();
   });
 
-  it('shows an empty state when filters exclude all employees', () => {
-    renderView(Team);
+  it('shows an empty state when filters exclude all employees', async () => {
+    await renderView(Team);
 
     fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'zzzz-no-match' } });
 
     expect(screen.getByText('No team members match these filters.')).toBeInTheDocument();
   });
 
-  it('shows a first-run empty state before any employees have been added', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees: [] }));
-
-    render(
-      <AppStateProvider>
-        <Team />
-      </AppStateProvider>
-    );
+  it('shows a first-run empty state before any employees have been added', async () => {
+    await renderView(Team, { employees: [] });
 
     expect(screen.getByText('Add your first employee to build the team roster.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add first employee' })).toBeInTheDocument();
@@ -179,8 +205,8 @@ describe('Team view', () => {
     expect(screen.queryByText('No team members match these filters.')).not.toBeInTheDocument();
   });
 
-  it('filters as you type without needing to submit', () => {
-    renderView(Team);
+  it('filters as you type without needing to submit', async () => {
+    await renderView(Team);
 
     fireEvent.change(screen.getByPlaceholderText('Search employees'), { target: { value: 'Jen Ray' } });
 
@@ -188,8 +214,8 @@ describe('Team view', () => {
     expect(screen.queryByText('Ryan Sutton')).not.toBeInTheDocument();
   });
 
-  it('shows inline validation errors on blur', () => {
-    renderView(Team);
+  it('shows inline validation errors on blur', async () => {
+    await renderView(Team);
 
     fireEvent.click(screen.getByText('Add Employee'));
     fireEvent.blur(screen.getByLabelText('Name'));
@@ -200,21 +226,23 @@ describe('Team view', () => {
     expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
   });
 
-  it('saves shifts per week when creating a team member', () => {
-    renderView(Team);
+  it('saves shifts per week when creating a team member', async () => {
+    await renderView(Team);
 
     fireEvent.click(screen.getAllByText('Add Employee')[0]);
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Taylor Lee' } });
     fireEvent.change(screen.getByLabelText('Shifts Per Week'), { target: { value: '3' } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'Roles' })).getByRole('button', { name: 'Server' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'Add Employee' })[1]);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Taylor Lee' }));
 
     expect(screen.getByLabelText('Shifts Per Week')).toHaveValue(3);
   });
 
-  it('toggles between card and list views', () => {
-    renderView(Team);
+  it('toggles between card and list views', async () => {
+    await renderView(Team);
 
     fireEvent.click(screen.getByRole('button', { name: 'List view' }));
 
@@ -227,11 +255,11 @@ describe('Team view', () => {
     expect(screen.getAllByText('Archive').length).toBeGreaterThan(0);
   });
 
-  it('uses card view only on mobile and hides the toggle control', () => {
+  it('uses card view only on mobile and hides the toggle control', async () => {
     window.innerWidth = 768;
     window.dispatchEvent(new Event('resize'));
 
-    renderView(Team);
+    await renderView(Team);
 
     expect(screen.queryByRole('group', { name: 'Team view mode' })).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -241,8 +269,8 @@ describe('Team view', () => {
     window.dispatchEvent(new Event('resize'));
   });
 
-  it('shows a roster data menu with export and import actions', () => {
-    renderView(Team);
+  it('shows a roster data menu with export and import actions', async () => {
+    await renderView(Team);
 
     expect(screen.queryByRole('button', { name: 'Export roster' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Import roster' })).not.toBeInTheDocument();
@@ -256,7 +284,7 @@ describe('Team view', () => {
   });
 
   it('imports a roster csv from the modal workflow', async () => {
-    renderView(Team);
+    await renderView(Team);
 
     fireEvent.click(screen.getByRole('button', { name: 'Roster data' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Import roster' }));
@@ -286,9 +314,7 @@ describe('Team view', () => {
     window.dispatchEvent(new Event('resize'));
   });
 
-  it('downloads a blank roster template csv from the onboarding empty state', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees: [] }));
-
+  it('downloads a blank roster template csv from the onboarding empty state', async () => {
     const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template');
     const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
     const originalCreateElement = document.createElement.bind(document);
@@ -317,11 +343,7 @@ describe('Team view', () => {
         return originalCreateElement(tagName);
     });
 
-    render(
-      <AppStateProvider>
-        <Team />
-      </AppStateProvider>
-    );
+    await renderView(Team, { employees: [] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Download blank template' }));
 
@@ -334,7 +356,7 @@ describe('Team view', () => {
     revokeObjectUrlSpy.mockRestore();
   });
 
-  it('downloads the blank template from inside the import modal', () => {
+  it('downloads the blank template from inside the import modal', async () => {
     const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template-modal');
     const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
     const originalCreateElement = document.createElement.bind(document);
@@ -363,7 +385,7 @@ describe('Team view', () => {
       return originalCreateElement(tagName);
     });
 
-    renderView(Team);
+    await renderView(Team);
 
     fireEvent.click(screen.getByRole('button', { name: 'Roster data' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Import roster' }));

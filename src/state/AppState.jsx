@@ -1,7 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 
-const STORAGE_KEY = "shiftsizzle.app-state.v1";
+import { useAuth } from "./AuthState";
+import { buildScheduleRecordId } from "./scheduleRecordId";
+import {
+  fetchOrgBundle,
+  subscribeToOrgChanges,
+  updateOrganizationSettings,
+  upsertAvailabilityRow,
+  upsertEmployeeRow,
+  upsertScheduleRecordRow,
+} from "./supabaseSync";
+
 const AUTOSAVE_DEBOUNCE_MS = 2000;
+// How long to wait after the last local edit before pushing it to Supabase.
+// One debounce covers every mutation uniformly (a single employee edit and a
+// burst of assignment-cell clicks alike) rather than tuning per action type.
+const SYNC_DEBOUNCE_MS = 800;
 
 export const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 export const BASE_SHIFT_TYPES = ["Open", "Mid", "Close"];
@@ -320,86 +334,6 @@ export const getOpenDays = (settings = {}) => {
   return DAYS.filter((day) => operatingHours[day]?.isOpen);
 };
 
-const defaultEmployees = [
-  {
-    id: 1,
-    name: "Jen Ray",
-    title: "General Manager",
-    roles: [BASE_TEAM_ROLES.MANAGER],
-    contact: "(555) 010-1001",
-    email: "jen@shiftsizzle.app",
-    shiftsPerWeek: 5,
-    status: "active",
-    availability: createAvailability(),
-  },
-  {
-    id: 2,
-    name: "Ryan Sutton",
-    title: "Assistant General Manager",
-    roles: [BASE_TEAM_ROLES.MANAGER],
-    contact: "(555) 010-1002",
-    email: "ryan@shiftsizzle.app",
-    shiftsPerWeek: 5,
-    status: "active",
-    availability: createAvailability(["Open", "Mid"]),
-  },
-  {
-    id: 3,
-    name: "Kayla Brooks",
-    title: "Bar Manager",
-    roles: [BASE_TEAM_ROLES.BARTENDER],
-    contact: "(555) 010-1003",
-    email: "kayla@shiftsizzle.app",
-    shiftsPerWeek: 4,
-    status: "active",
-    availability: createAvailability(["Mid", "Close"]),
-  },
-  {
-    id: 4,
-    name: "Kirk Brady",
-    title: "Director",
-    roles: [BASE_TEAM_ROLES.MANAGER],
-    contact: "(555) 010-1004",
-    email: "kirk@shiftsizzle.app",
-    shiftsPerWeek: 4,
-    status: "active",
-    availability: createAvailability(["Open", "Close"]),
-  },
-  {
-    id: 5,
-    name: "Jackie Carter",
-    title: "Lead Host",
-    roles: [BASE_TEAM_ROLES.HOST],
-    contact: "(555) 010-1005",
-    email: "jackie@shiftsizzle.app",
-    shiftsPerWeek: 4,
-    status: "active",
-    availability: createAvailability(),
-  },
-  {
-    id: 6,
-    name: "Marco Ellis",
-    title: "Line Cook",
-    roles: [BASE_TEAM_ROLES.COOK],
-    contact: "(555) 010-1006",
-    email: "marco@shiftsizzle.app",
-    shiftsPerWeek: 5,
-    status: "active",
-    availability: createAvailability(["Open", "Mid"]),
-  },
-  {
-    id: 7,
-    name: "Ariana Cole",
-    title: "Server",
-    roles: [BASE_TEAM_ROLES.SERVER],
-    contact: "(555) 010-1007",
-    email: "ariana@shiftsizzle.app",
-    shiftsPerWeek: 4,
-    status: "active",
-    availability: createAvailability(["Mid", "Close"]),
-  },
-].map((employee) => normalizeEmployee(employee));
-
 // Sums one employee's assigned shifts across EVERY role bucket — a
 // person's shiftsPerWeek cap is a total across all roles they work, not
 // per-role.
@@ -547,8 +481,6 @@ export const calculateScheduleReview = ({
     },
   };
 };
-
-const buildScheduleRecordId = (startDate, role) => `${startDate}__${role}`;
 
 const upsertScheduleRecord = (schedules = [], nextRecord) => {
   const existingIndex = schedules.findIndex((entry) => entry.id === nextRecord.id);
@@ -735,62 +667,6 @@ const applyWeekContext = (state, startDate) => ({
   },
 });
 
-const migrateToScheduleRecords = (schedule = {}, employees = [], settings = {}) => {
-  const shiftTypes = getShiftTypes(settings);
-  const operatingHours = normalizeOperatingHours(settings.operatingHours);
-  const legacyHistory = Array.isArray(schedule.publishHistory) ? schedule.publishHistory : [];
-
-  const fromHistory = legacyHistory
-    .filter((entry) => entry && entry.startDate && entry.selectedRole)
-    .map((entry) => ({
-      id: buildScheduleRecordId(entry.startDate, entry.selectedRole),
-      weekLabel: entry.weekLabel,
-      startDate: entry.startDate,
-      endDate: entry.endDate,
-      role: entry.selectedRole,
-      status: "published",
-      requirements: normalizeRequirements(entry.requirements, shiftTypes, operatingHours),
-      assignments: normalizeRoleAssignments(entry.assignments, employees, shiftTypes, operatingHours),
-      notes: entry.notes ?? "",
-      createdAt: entry.publishedAt,
-      savedAt: entry.publishedAt,
-      publishedAt: entry.publishedAt,
-      coverageGaps: entry.coverageGaps,
-      shiftCapAlerts: entry.shiftCapAlerts,
-      metrics: entry.metrics,
-    }));
-
-  const legacyIsSavedDraft = Boolean(
-    schedule.startDate
-    && schedule.selectedRole
-    && schedule.status !== "published"
-    && schedule.lastSavedAt
-    && !schedule.hasUnsavedChanges
-  );
-
-  const fromActiveDraft = legacyIsSavedDraft
-    ? [{
-      id: buildScheduleRecordId(schedule.startDate, schedule.selectedRole),
-      weekLabel: schedule.weekLabel,
-      startDate: schedule.startDate,
-      endDate: schedule.endDate,
-      role: schedule.selectedRole,
-      status: "draft",
-      requirements: normalizeRequirements(schedule.requirements, shiftTypes, operatingHours),
-      assignments: normalizeRoleAssignments(schedule.assignments, employees, shiftTypes, operatingHours),
-      notes: schedule.notes ?? "",
-      createdAt: schedule.lastSavedAt,
-      savedAt: schedule.lastSavedAt,
-      publishedAt: schedule.lastPublishedAt ?? null,
-    }]
-    : [];
-
-  const byId = new Map();
-  [...fromHistory, ...fromActiveDraft].forEach((record) => byId.set(record.id, record));
-
-  return Array.from(byId.values());
-};
-
 const hasScheduleDraftProgress = (schedule = {}) => {
   const hasRequirements = Object.values(schedule.roleRequirements ?? {}).some((grid) =>
     Object.values(grid ?? {}).some((dayRequirements) =>
@@ -814,7 +690,7 @@ const hasScheduleDraftProgress = (schedule = {}) => {
 };
 
 const createDefaultSchedule = (
-  employees = defaultEmployees,
+  employees = [],
   shiftTypes = BASE_SHIFT_TYPES,
   teamRoles = Object.values(BASE_TEAM_ROLES),
   operatingHours = normalizeOperatingHours()
@@ -838,26 +714,24 @@ const createDefaultSchedule = (
 const createDefaultState = () => {
   const settings = {
     businessName: "ShiftSizzle",
-    locationName: "Riverfront Grill",
-    currentUserName: "Jennifer",
-    schedulerName: "Jennifer Ray",
-    // Stand-in for real sign-in: which employees[] record the logged-in
-    // user is. Compared by String() at lookup sites so it works whether
-    // ids are numbers (today) or GUID strings (if that changes later).
-    currentUserEmployeeId: 1,
+    locationName: "",
+    schedulerName: "",
     publishNotifications: true,
     shiftTypes: [...BASE_SHIFT_TYPES],
     additionalTeamRoles: [],
     weekStartsOn: "",
     operatingHours: normalizeOperatingHours(),
   };
-  const teamRoles = getTeamRoles(settings, defaultEmployees);
 
   return {
     settings,
-    employees: defaultEmployees,
-    schedule: createDefaultSchedule(defaultEmployees, BASE_SHIFT_TYPES, teamRoles, normalizeOperatingHours()),
+    employees: [],
+    schedule: createDefaultSchedule([], BASE_SHIFT_TYPES, getTeamRoles(settings, []), normalizeOperatingHours()),
     schedules: [],
+    // False until the first HYDRATE_FROM_SERVER — lets consumers (and
+    // tests) tell "org data hasn't loaded yet" apart from "this org
+    // genuinely has zero employees/schedules".
+    isHydrated: false,
   };
 };
 
@@ -865,7 +739,6 @@ const normalizeSettings = (settings = {}, schedule = {}) => {
   const normalizedSettings = {
     ...createDefaultState().settings,
     ...settings,
-    businessName: "ShiftSizzle",
   };
 
   return {
@@ -927,41 +800,6 @@ const normalizeSchedule = (schedule = {}, employees = [], settings = {}) => {
 
 const AppStateContext = createContext(null);
 
-const hydrateState = () => {
-  if (typeof window === "undefined") {
-    return createDefaultState();
-  }
-
-  const storedState = window.localStorage.getItem(STORAGE_KEY);
-
-  if (!storedState) {
-    return createDefaultState();
-  }
-
-  try {
-    const parsedState = JSON.parse(storedState);
-    const settings = normalizeSettings(parsedState.settings, parsedState.schedule);
-    const shiftTypes = getShiftTypes(settings);
-    const employees = (parsedState.employees ?? defaultEmployees).map((employee) => normalizeEmployee(employee, shiftTypes));
-    const schedule = normalizeSchedule(parsedState.schedule, employees, settings);
-    const existingSchedules = Array.isArray(parsedState.schedules) ? parsedState.schedules : [];
-    const schedules = existingSchedules.length
-      ? existingSchedules
-      : migrateToScheduleRecords(parsedState.schedule ?? {}, employees, settings);
-
-    return {
-      ...createDefaultState(),
-      ...parsedState,
-      settings,
-      employees,
-      schedule,
-      schedules,
-    };
-  } catch {
-    return createDefaultState();
-  }
-};
-
 const appStateReducer = (state, action) => {
   switch (action.type) {
     case "UPSERT_EMPLOYEE": {
@@ -1004,7 +842,7 @@ const appStateReducer = (state, action) => {
       const employees = action.payload.reduce((nextEmployees, employee) => {
         const normalizedEmployee = normalizeEmployee({
           ...employee,
-          id: employee.id ?? Date.now() + nextEmployees.length,
+          id: employee.id ?? crypto.randomUUID(),
           availability: employee.availability ?? createAvailability(shiftTypes),
           status: employee.status ?? "active",
         }, shiftTypes);
@@ -1284,18 +1122,157 @@ const appStateReducer = (state, action) => {
         },
       };
     }
+    // Replaces settings/employees/schedules wholesale with what was fetched
+    // from Supabase for the current org, then rebuilds the live editing
+    // canvas (schedule) for whichever week was already selected (or "this
+    // week" on first load) from that data — mirrors what hydrateState used
+    // to do from a localStorage blob, just sourced from the server instead.
+    case "HYDRATE_FROM_SERVER": {
+      const settings = normalizeSettings(action.payload.settings);
+      const shiftTypes = getShiftTypes(settings);
+      const employees = action.payload.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
+      const schedules = action.payload.schedules;
+      const startDate = state.schedule.startDate || getCurrentWeekStartDate(settings.weekStartsOn);
+
+      return applyWeekContext({ ...state, settings, employees, schedules, isHydrated: true }, startDate);
+    }
+    // Applies one incoming Realtime row (another session's edit) into local
+    // state. `table`/`row` are already mapped to this file's camelCase shape
+    // by supabaseSync before dispatch, so this stays free of column names.
+    case "MERGE_SERVER_RECORD": {
+      const { table, eventType, row } = action.payload;
+      const shiftTypes = getShiftTypes(state.settings);
+
+      if (table === "employees") {
+        if (eventType === "DELETE") {
+          return { ...state, employees: state.employees.filter((employee) => employee.id !== row.id) };
+        }
+
+        const existing = state.employees.find((employee) => employee.id === row.id);
+        const merged = normalizeEmployee({ ...existing, ...row, availability: existing?.availability }, shiftTypes);
+        const employees = existing
+          ? state.employees.map((employee) => (employee.id === row.id ? merged : employee))
+          : [...state.employees, merged];
+
+        return { ...state, employees };
+      }
+
+      if (table === "employee_availability") {
+        const employees = state.employees.map((employee) =>
+          employee.id === row.employeeId
+            ? { ...employee, availability: normalizeAvailability(row.availability, shiftTypes) }
+            : employee
+        );
+
+        return { ...state, employees };
+      }
+
+      if (table === "schedule_records") {
+        const schedules = eventType === "DELETE"
+          ? state.schedules.filter((entry) => entry.id !== row.id)
+          : upsertScheduleRecord(state.schedules, row);
+
+        return applyWeekContext({ ...state, schedules }, state.schedule.startDate);
+      }
+
+      return state;
+    }
     default:
       return state;
   }
 };
 
 export const AppStateProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(appStateReducer, undefined, hydrateState);
+  const { membership } = useAuth();
+  const orgId = membership?.orgId ?? null;
+  const [state, dispatch] = useReducer(appStateReducer, undefined, createDefaultState);
   const autosaveTimerRef = useRef(null);
+  const syncTimerRef = useRef(null);
+  const previousSyncedRef = useRef({ employees: [], schedules: [], settings: null });
+  const skipNextSyncRef = useRef(false);
 
+  // Load this org's data once we know who's signed in, and keep listening
+  // for other sessions' changes to it (manager + staff can be editing at
+  // the same time now, unlike the old single-user localStorage app).
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    if (!orgId) {
+      return undefined;
+    }
+
+    let isCurrent = true;
+
+    fetchOrgBundle(orgId).then((bundle) => {
+      if (!isCurrent) {
+        return;
+      }
+
+      skipNextSyncRef.current = true;
+      dispatch({ type: "HYDRATE_FROM_SERVER", payload: bundle });
+    });
+
+    const unsubscribe = subscribeToOrgChanges(orgId, (change) => {
+      skipNextSyncRef.current = true;
+      dispatch({ type: "MERGE_SERVER_RECORD", payload: change });
+    });
+
+    return () => {
+      isCurrent = false;
+      unsubscribe();
+    };
+  }, [orgId]);
+
+  // Push local edits to Supabase — debounced so a burst of edits (e.g.
+  // toggling several assignment cells) becomes one write per row, not one
+  // per click. Skipped for the state change right after a server
+  // hydrate/merge, since that data just came FROM the server and re-sending
+  // it would just be a wasted round trip.
+  useEffect(() => {
+    if (!orgId) {
+      return undefined;
+    }
+
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      previousSyncedRef.current = { employees: state.employees, schedules: state.schedules, settings: state.settings };
+      return undefined;
+    }
+
+    window.clearTimeout(syncTimerRef.current);
+
+    syncTimerRef.current = window.setTimeout(() => {
+      const previous = previousSyncedRef.current;
+
+      state.employees.forEach((employee) => {
+        const { availability, ...core } = employee;
+        const previousEmployee = previous.employees.find((entry) => entry.id === employee.id);
+        const previousCore = previousEmployee ? { ...previousEmployee, availability: undefined } : null;
+
+        if (!previousEmployee || JSON.stringify(previousCore) !== JSON.stringify({ ...core, availability: undefined })) {
+          upsertEmployeeRow(orgId, employee);
+        }
+
+        if (!previousEmployee || JSON.stringify(previousEmployee.availability) !== JSON.stringify(availability)) {
+          upsertAvailabilityRow(orgId, employee.id, availability);
+        }
+      });
+
+      state.schedules.forEach((record) => {
+        const previousRecord = previous.schedules.find((entry) => entry.id === record.id);
+
+        if (!previousRecord || JSON.stringify(previousRecord) !== JSON.stringify(record)) {
+          upsertScheduleRecordRow(orgId, record);
+        }
+      });
+
+      if (!previous.settings || JSON.stringify(previous.settings) !== JSON.stringify(state.settings)) {
+        updateOrganizationSettings(orgId, state.settings);
+      }
+
+      previousSyncedRef.current = { employees: state.employees, schedules: state.schedules, settings: state.settings };
+    }, SYNC_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(syncTimerRef.current);
+  }, [state, orgId]);
 
   // Silent autosave: after a short idle window, commit the in-progress week
   // into schedules[] (the same records Schedule history reads) so work is

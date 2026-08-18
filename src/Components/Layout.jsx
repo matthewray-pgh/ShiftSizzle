@@ -1,16 +1,21 @@
 import { NavLink, useLocation } from "react-router-dom";
 
-import { useAppState } from "../state/AppState";
+import { useAuth } from "../state/AuthState";
 import logo from "../Assets/ShiftSizzle.Logo.png";
 import logoCompact from "../Assets/ShiftSizzle.Logo.Compact.png";
 
 import "./Layout.scss";
 
+const ROLE_LABELS = {
+  owner: "Owner workspace",
+  manager: "Manager workspace",
+  staff: "Staff workspace",
+};
+
 export const Layout = ({ children }) => {
   const location = useLocation();
-  const {
-    state: { settings },
-  } = useAppState();
+  const { user, membership, signOut } = useAuth();
+  const workspaceLabel = ROLE_LABELS[membership?.accountRole] ?? "Workspace";
 
   const pageTitles = {
     "/": "Dashboard",
@@ -38,18 +43,21 @@ export const Layout = ({ children }) => {
             {currentPage}
           </div>
           <div className="layout__header-main-user">
-            <span className="layout__header-main-user-label">Manager workspace</span>
+            <span className="layout__header-main-user-label">{workspaceLabel}</span>
             <div className="layout__header-main-user-pill">
               <i className="fas fa-user-circle" aria-hidden="true"></i>
-              <span>{settings.currentUserName}</span>
+              <span>{user?.email}</span>
             </div>
+            <button type="button" className="layout__header-main-user-signout" onClick={signOut} aria-label="Sign out">
+              <i className="fas fa-arrow-right-from-bracket" aria-hidden="true"></i>
+            </button>
           </div>
         </div>
       </header>
 
       <main className="layout__main">
         <section className="layout__sidebar-nav">
-          <Navigation testId="sidebar-nav" />
+          <Navigation testId="sidebar-nav" canManage={membership?.accountRole !== "staff"} />
         </section>
 
         <section className="layout__main--content">
@@ -57,13 +65,13 @@ export const Layout = ({ children }) => {
         </section>
       </main>
       <footer className="layout__footer">
-        <Navigation testId="footer-mobile-nav" />
+        <Navigation testId="footer-mobile-nav" canManage={membership?.accountRole !== "staff"} />
       </footer>
     </div>
   );
 };
 
-const Navigation = ({ testId }) => {
+const Navigation = ({ testId, canManage }) => {
   const getLinkClass = ({ isActive }) => (isActive ? "layout__nav--link active" : "layout__nav--link");
 
   return (
@@ -80,10 +88,12 @@ const Navigation = ({ testId }) => {
         <i className="fas fa-users" aria-hidden="true"></i>
         <span>Team</span>
       </NavLink>
-      <NavLink className={getLinkClass} to="/settings">
-        <i className="fas fa-cog" aria-hidden="true"></i>
-        <span>Settings</span>
-      </NavLink>
+      {canManage && (
+        <NavLink className={getLinkClass} to="/settings">
+          <i className="fas fa-cog" aria-hidden="true"></i>
+          <span>Settings</span>
+        </NavLink>
+      )}
     </nav>
   )
 }

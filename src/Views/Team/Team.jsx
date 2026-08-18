@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Button, ContentPanel, InputField, StatusBadge } from '../../Components';
 import { DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
+import { useAuth } from '../../state/AuthState';
+import { supabase } from '../../lib/supabaseClient';
 import {
   buildRosterImportPreview,
   createBlankRosterTemplateCsv,
@@ -121,13 +123,62 @@ const getAvailabilityDayFlags = (availability = {}) => DAYS.map((day) => ({
 
   const formatShiftsPerWeek = (shiftsPerWeek = 0) => `${shiftsPerWeek} ${shiftsPerWeek === 1 ? 'shift' : 'shifts'}/week`;
 
+const createEmptyInviteForm = () => ({ email: '', accountRole: 'staff', employeeId: '' });
+
 export const Team = () => {
   const { state, dispatch } = useAppState();
   const { employees, settings } = state;
+  const { membership } = useAuth();
+  const canManageTeam = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
   const roleFilterOptions = ['All roles', ...teamRoles];
   const hasEmployees = employees.length > 0;
+
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteForm, setInviteForm] = useState(createEmptyInviteForm());
+  const [inviteError, setInviteError] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState('');
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+
+  const openInviteModal = () => {
+    setInviteForm(createEmptyInviteForm());
+    setInviteError('');
+    setInviteSuccess('');
+    setShowInviteModal(true);
+  };
+
+  const closeInviteModal = () => setShowInviteModal(false);
+
+  const handleInviteSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!inviteForm.email.trim()) {
+      setInviteError('Enter an email address.');
+      return;
+    }
+
+    setInviteError('');
+    setInviteSubmitting(true);
+
+    const { data, error } = await supabase.functions.invoke('invite-member', {
+      body: {
+        email: inviteForm.email.trim(),
+        accountRole: inviteForm.accountRole,
+        employeeId: inviteForm.employeeId || null,
+      },
+    });
+
+    setInviteSubmitting(false);
+
+    if (error || data?.error) {
+      setInviteError(data?.error ?? error.message);
+      return;
+    }
+
+    setInviteSuccess(`Invite sent to ${inviteForm.email.trim()}.`);
+    setInviteForm(createEmptyInviteForm());
+  };
 
   const [form, setForm] = useState(createEmptyForm(teamRoles, shiftTypes));
   const [formErrors, setFormErrors] = useState(validateForm(createEmptyForm(teamRoles, shiftTypes)));
@@ -274,7 +325,7 @@ export const Team = () => {
     dispatch({
       type: 'UPSERT_EMPLOYEE',
       payload: {
-        id: form.id ?? Date.now(),
+        id: form.id ?? crypto.randomUUID(),
         name: form.name.trim(),
         title: form.title.trim(),
         roles: form.roles,
@@ -553,28 +604,46 @@ export const Team = () => {
                       </span>
                       Export roster
                     </button>
-                    <button
-                      type="button"
-                      className="team__downloads-menu-item"
-                      onClick={openImportModal}
-                      role="menuitem"
-                    >
-                      <span className="team__action-icon" aria-hidden="true">
-                        <i className="fas fa-file-import" />
-                      </span>
-                      Import roster
-                    </button>
+                    {canManageTeam && (
+                      <button
+                        type="button"
+                        className="team__downloads-menu-item"
+                        onClick={openImportModal}
+                        role="menuitem"
+                      >
+                        <span className="team__action-icon" aria-hidden="true">
+                          <i className="fas fa-file-import" />
+                        </span>
+                        Import roster
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
+              {canManageTeam && (
+                <Button
+                  onClick={openCreateModal}
+                  className="team__primary-action"
+                >
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-plus" />
+                  </span>
+                  Add Employee
+                </Button>
+              )}
+            </div>
+          )}
+          {canManageTeam && (
+            <div className="team__control-actions">
               <Button
-                onClick={openCreateModal}
-                className="team__primary-action"
+                type="button"
+                onClick={openInviteModal}
+                className="team__toolbar-action team__toolbar-action--secondary"
               >
                 <span className="team__action-icon" aria-hidden="true">
-                  <i className="fas fa-plus" />
+                  <i className="fas fa-user-plus" />
                 </span>
-                Add Employee
+                Invite team member
               </Button>
             </div>
           )}
@@ -703,27 +772,29 @@ export const Team = () => {
             <span className="team__availability-summary-label">Start your roster</span>
             <h3>Add your first employee to build the team roster.</h3>
             <p>Create one employee manually, import a CSV roster, or download the template and fill it out offline before uploading.</p>
-            <div className="team__empty-state-actions">
-              <Button type="button" className="team__primary-action" onClick={openCreateModal}>
-                <span className="team__action-icon" aria-hidden="true">
-                  <i className="fas fa-plus" />
-                </span>
-                Add first employee
-              </Button>
-              <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
-                <span className="team__action-icon" aria-hidden="true">
-                  <i className="fas fa-file-import" />
-                </span>
-                Import roster
-              </Button>
-              <button
-                type="button"
-                className="team__empty-state-link"
-                onClick={downloadBlankRosterTemplate}
-              >
-                Download blank template
-              </button>
-            </div>
+            {canManageTeam && (
+              <div className="team__empty-state-actions">
+                <Button type="button" className="team__primary-action" onClick={openCreateModal}>
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-plus" />
+                  </span>
+                  Add first employee
+                </Button>
+                <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-file-import" />
+                  </span>
+                  Import roster
+                </Button>
+                <button
+                  type="button"
+                  className="team__empty-state-link"
+                  onClick={downloadBlankRosterTemplate}
+                >
+                  Download blank template
+                </button>
+              </div>
+            )}
           </ContentPanel>
         )}
         {showFilteredEmptyState && (
@@ -753,19 +824,21 @@ export const Team = () => {
               <div className="team__member-details">
                 <div className="team__member-header">
                   <div className="team__member-name"><strong>{emp.name}</strong></div>
-                  <button
-                    type="button"
-                    className="team__edit-link team__edit-link--card"
-                    title="Edit"
-                    aria-label={`Edit ${emp.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openEditModal(emp);
-                    }}
-                  >
-                    <i className="fas fa-pen" aria-hidden="true" />
-                    Edit
-                  </button>
+                  {canManageTeam && (
+                    <button
+                      type="button"
+                      className="team__edit-link team__edit-link--card"
+                      title="Edit"
+                      aria-label={`Edit ${emp.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditModal(emp);
+                      }}
+                    >
+                      <i className="fas fa-pen" aria-hidden="true" />
+                      Edit
+                    </button>
+                  )}
                 </div>
                 <div className="team__member-role-row">
                   {emp.title && <span className="team__member-title">{emp.title}</span>}
@@ -844,17 +917,19 @@ export const Team = () => {
                       {renderAvailabilityStrip(employee.availability, `table-${employee.id}`)}
                     </td>
                     <td>
-                      <div className="team__table-actions">
-                        <button
-                          type="button"
-                          className="team__edit-link"
-                          onClick={() => openEditModal(employee)}
-                        >
-                          <i className="fas fa-pen" aria-hidden="true" />
-                          Edit
-                        </button>
-                        {renderEmployeeActions(employee)}
-                      </div>
+                      {canManageTeam && (
+                        <div className="team__table-actions">
+                          <button
+                            type="button"
+                            className="team__edit-link"
+                            onClick={() => openEditModal(employee)}
+                          >
+                            <i className="fas fa-pen" aria-hidden="true" />
+                            Edit
+                          </button>
+                          {renderEmployeeActions(employee)}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1199,6 +1274,68 @@ export const Team = () => {
             </div>
           </div>
           <div className="team__modal-backdrop" onClick={closeImportModal}></div>
+        </div>
+      )}
+
+      {showInviteModal && (
+        <div className="team__modal-overlay">
+          <div className="team__modal">
+            <div className="team__modal-header">
+              <div>
+                <h2>Invite team member</h2>
+                <p className="team__modal-subtitle">Send a sign-in invite by email. Staff can see the published schedule and set their own availability; managers can edit the roster and schedule.</p>
+              </div>
+            </div>
+            <form onSubmit={handleInviteSubmit} className="team__modal-form">
+              <div className="team__modal-body">
+                {inviteError && <p className="settings__field-hint" role="alert">{inviteError}</p>}
+                {inviteSuccess && <p className="settings__field-hint">{inviteSuccess}</p>}
+                <InputField
+                  label="Email"
+                  name="inviteEmail"
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(value) => setInviteForm((current) => ({ ...current, email: value }))}
+                  required
+                />
+                <InputField
+                  label="Account Role"
+                  name="inviteAccountRole"
+                  type="select"
+                  value={inviteForm.accountRole}
+                  onChange={(value) => setInviteForm((current) => ({ ...current, accountRole: value }))}
+                  options={['staff', 'manager']}
+                />
+                <label className="settings__field-label" htmlFor="invite-employee-id">Link to Roster Employee (optional)</label>
+                <select
+                  id="invite-employee-id"
+                  className="settings__select"
+                  value={inviteForm.employeeId}
+                  onChange={(event) => setInviteForm((current) => ({ ...current, employeeId: event.target.value }))}
+                >
+                  <option value="">Not linked</option>
+                  {employees.filter((employee) => employee.status === 'active').map((employee) => (
+                    <option key={employee.id} value={employee.id}>{employee.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="team__modal-actions">
+                <Button type="submit" className="team__modal-primary-action" disabled={inviteSubmitting}>
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-paper-plane" />
+                  </span>
+                  {inviteSubmitting ? 'Sending…' : 'Send invite'}
+                </Button>
+                <Button type="button" className="team__modal-secondary-action" onClick={closeInviteModal}>
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-xmark" />
+                  </span>
+                  Close
+                </Button>
+              </div>
+            </form>
+          </div>
+          <div className="team__modal-backdrop" onClick={closeInviteModal}></div>
         </div>
       )}
     </div>

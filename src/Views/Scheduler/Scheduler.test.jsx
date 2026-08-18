@@ -2,10 +2,24 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider } from '../../state/AppState';
-import { renderView } from '../../test/renderView';
+import { AuthProvider } from '../../state/AuthState';
+import { HydrationGate, renderView } from '../../test/renderView';
 import { Scheduler } from './Scheduler';
 
-const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+vi.mock('../../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
+
+const { supabase } = await import('../../lib/supabaseClient');
+const { seedFakeSupabase } = await import('../../test/fakeSupabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
 
 const singleDayOperatingHours = {
   Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
@@ -44,7 +58,40 @@ const getRoleSection = (role) => screen
 
 const getDayCard = (day) => screen.getByRole('heading', { name: day, level: 4 }).closest('.scheduler__requirements-card');
 
+// Renders Scheduler wrapped in the same AuthProvider > AppStateProvider tree
+// the real app uses, seeding org data first and waiting for hydration to
+// finish before Scheduler itself ever mounts. Scheduler reads deep-link
+// query params in a mount-only effect, so it must not mount until
+// settings/employees are already loaded — otherwise that effect fires
+// against pre-hydration defaults and never gets a second chance (mirrors
+// how, before the Supabase migration, that data was already available
+// synchronously from localStorage by the time Scheduler first mounted).
+const renderScheduler = async (seed = {}) => {
+  seedFakeSupabase(supabase, seed);
+
+  render(
+    <AuthProvider>
+      <AppStateProvider>
+        <HydrationGate>
+          <Scheduler />
+        </HydrationGate>
+      </AppStateProvider>
+    </AuthProvider>
+  );
+
+  await screen.findByLabelText('Week start date');
+};
+
+// Selects a week on the already-rendered Scheduler via its own "Week start
+// date" control — this is the real UI a manager uses to jump between
+// weeks, so tests drive it the same way instead of dispatching SELECT_WEEK
+// directly.
+const selectWeek = (startDate) => {
+  fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: startDate } });
+};
+
 beforeEach(() => {
+  resetFakeSupabase();
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.restoreAllMocks();
@@ -55,8 +102,8 @@ afterEach(() => {
 });
 
 describe('Scheduler view', () => {
-  it('renders the scheduler page before a week is selected', () => {
-    renderView(Scheduler);
+  it('renders the scheduler page before a week is selected', async () => {
+    await renderView(Scheduler);
 
     expect(screen.getByText('Build Schedule')).toBeInTheDocument();
     expect(screen.getAllByText('Choose which day your schedules start on, then pick a start date below.').length).toBeGreaterThan(0);
@@ -74,43 +121,35 @@ describe('Scheduler view', () => {
     expect(within(statusPanel).getByText('Set the week to start planning.')).toBeInTheDocument();
   });
 
-  it('hydrates week and role from deep-link query params, activating the matching role tab', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { weekStartsOn: 'Monday' },
-      schedule: { startDate: '', endDate: '', weekLabel: '' },
-    }));
+  it('hydrates week and role from deep-link query params, activating the matching role tab', async () => {
     window.history.replaceState({}, '', '/schedule/build?weekStart=2026-05-25&role=Manager');
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    await renderScheduler({
+      settings: { weekStartsOn: 'Monday' },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+    });
 
     expect(screen.getByLabelText('Week start date')).toHaveValue('2026-05-25');
     expect(screen.getByRole('tab', { name: /^Manager/ })).toHaveAttribute('aria-selected', 'true');
     expect(window.location.search).toBe('');
   });
 
-  it('switching weeks with unsaved changes autosaves the previous week and switches with no confirm dialog', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('switching weeks with unsaved changes autosaves the previous week and switches with no confirm dialog', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(1) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-        hasUnsavedChanges: true,
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: '2026-06-07' } });
 
@@ -126,27 +165,33 @@ describe('Scheduler view', () => {
     expect(getDayCard('Monday').querySelector('input')).toHaveValue(1);
   });
 
-  it('resets the whole week behind a confirm dialog', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('resets the whole week behind a confirm dialog', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(1), Server: grid(2) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 2: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: emptyAssignments() },
+      }, {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(2),
+        assignments: { 2: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     const trigger = screen.getByRole('button', { name: 'Reset week' });
 
@@ -163,50 +208,44 @@ describe('Scheduler view', () => {
     expect(getDayCard('Monday').querySelector('input')).toHaveValue(0);
   });
 
-  it('hides closed days from scheduling controls', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('hides closed days from scheduling controls', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
-
+    selectWeek('2026-05-24');
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
     expect(screen.queryByRole('heading', { name: 'Sunday', level: 4 })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Monday', level: 4 })).toBeInTheDocument();
   });
 
-  it('blocks publishing until coverage is filled and then records the publish state', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('blocks publishing until coverage is filled and then records the publish state', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(1) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
-
+    selectWeek('2026-05-24');
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
     const publishButton = screen.getByRole('button', { name: 'Publish week' });
@@ -223,25 +262,22 @@ describe('Scheduler view', () => {
     expect(screen.getByText(/Last published /)).toBeInTheDocument();
   });
 
-  it('enables draft generation as soon as coverage targets are added', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('enables draft generation as soon as coverage targets are added', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
-
+    selectWeek('2026-05-24');
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
@@ -253,25 +289,22 @@ describe('Scheduler view', () => {
     expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
   });
 
-  it('applies one day\'s coverage targets to every day via "Apply to all days"', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('applies one day\'s coverage targets to every day via "Apply to all days"', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
-
+    selectWeek('2026-05-24');
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
     const mondayCard = getDayCard('Monday');
@@ -282,25 +315,22 @@ describe('Scheduler view', () => {
     expect(getDayCard('Tuesday').querySelector('input')).toHaveValue(3);
   });
 
-  it('disables extra manual assignment buttons once an employee reaches the weekly shift cap', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('disables extra manual assignment buttons once an employee reaches the weekly shift cap', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
-
+    selectWeek('2026-05-24');
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
     const jenCard = screen.getAllByText('Jen Ray').find((element) => element.tagName === 'STRONG').closest('.scheduler__employee-card');
@@ -313,27 +343,33 @@ describe('Scheduler view', () => {
     expect(within(tuesdayRow).getByRole('button', { name: 'Open' })).toBeDisabled();
   });
 
-  it('switching role tabs does not reset or discard unsaved edits in other roles', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('switching role tabs does not reset or discard unsaved edits in other roles', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0), Server: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 2: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }, {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 2: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
     fireEvent.change(getDayCard('Monday').querySelector('input'), { target: { value: '3' } });
@@ -345,24 +381,22 @@ describe('Scheduler view', () => {
     expect(getDayCard('Monday').querySelector('input')).toHaveValue(3);
   });
 
-  it('shows "No demand set" instead of "Covered" for a role with no coverage targets entered', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('shows "No demand set" instead of "Covered" for a role with no coverage targets entered', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Server: grid(0) },
-        assignments: { Server: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     const serverSection = getRoleSection('Server');
 
@@ -370,82 +404,97 @@ describe('Scheduler view', () => {
     expect(within(serverSection).queryByText('Covered')).not.toBeInTheDocument();
   });
 
-  it('the checklist and "All roles" tab total open slots across every role, not just the active tab', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('the checklist and "All roles" tab total open slots across every role, not just the active tab', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(1), Server: grid(2) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 2: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: emptyAssignments() },
+      }, {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(2),
+        assignments: { 2: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     expect(screen.getByText('Coverage: 3 open slots')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^All roles/ })).toHaveTextContent('3');
   });
 
-  it('publish is blocked while any role with demand still has an open slot, even if the active tab\'s role is fully covered', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('publish is blocked while any role with demand still has an open slot, even if the active tab\'s role is fully covered', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(1), Server: grid(1) },
-        assignments: { Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } }, Server: { 2: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }, {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 2: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
     expect(within(getRoleSection('Manager')).getByText('Covered')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish week' })).toBeDisabled();
   });
 
-  it('blocks double-booking a shift under a different role and shows the cross-role assigned total on the employee card', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('blocks double-booking a shift under a different role and shows the cross-role assigned total on the employee card', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
-        { id: 3, name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '3', name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0), Server: grid(0) },
-        assignments: {
-          Manager: { 3: { ...emptyAssignments(), Monday: ['Open'] } },
-          Server: { 3: emptyAssignments() },
-        },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 3: { ...emptyAssignments(), Monday: ['Open'] } },
+      }, {
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Server',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 3: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
 
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
     const kaylaCardManagerView = screen.getByText('Kayla Brooks').closest('.scheduler__employee-card');
@@ -466,26 +515,27 @@ describe('Scheduler view', () => {
     expect(openButton).toHaveAttribute('title', expect.stringContaining('already working Open on Monday under another role'));
   });
 
-  it('autosaves an unsaved edit without clicking "Save draft"', () => {
-    vi.useFakeTimers();
-
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('autosaves an unsaved edit without clicking "Save draft"', async () => {
+    await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedule: {
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: grid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(0),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <Scheduler />
-      </AppStateProvider>
-    );
+    selectWeek('2026-05-24');
+
+    // Switch to fake timers only after hydration/week-selection above have
+    // already settled, so RTL's polling isn't stuck waiting on a clock
+    // that never advances.
+    vi.useFakeTimers();
 
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
     fireEvent.change(getDayCard('Monday').querySelector('input'), { target: { value: '2' } });

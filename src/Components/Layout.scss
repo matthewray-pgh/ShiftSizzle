@@ -120,6 +120,24 @@ body {
     }
   }
 
+  &__header-main-user-signout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(248, 250, 252, 0.8);
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+  }
+
   &__main {
     display: grid;
     grid-template-columns: 248px minmax(0, 1fr);

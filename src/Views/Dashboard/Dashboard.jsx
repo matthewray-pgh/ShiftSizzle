@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 
 import { ContentPanel, StatusBadge } from '../../Components';
-import { BASE_TEAM_ROLES, DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getWeekView, useAppState } from '../../state/AppState';
+import { DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getWeekView, useAppState } from '../../state/AppState';
+import { useAuth } from '../../state/AuthState';
 
 import './Dashboard.scss';
 
@@ -35,8 +36,9 @@ const buildOperatingHoursSummary = (operatingHours = {}) =>
   });
 
 export const Dashboard = () => {
-  const { state } = useAppState();
+  const { state, dispatch } = useAppState();
   const { employees, schedule: liveSchedule, settings } = state;
+  const { user, membership } = useAuth();
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
   const operatingHoursSummary = useMemo(
@@ -70,18 +72,13 @@ export const Dashboard = () => {
 
   const openDays = getOpenDays(settings);
 
-  // Stand-in for real sign-in: settings.currentUserEmployeeId is set via a
-  // "This is me" picker in Settings. Compared with String() so it matches
-  // regardless of whether ids are numbers (today) or strings.
-  const me = activeEmployees.find(
-    (employee) => String(employee.id) === String(settings.currentUserEmployeeId)
-  );
+  const me = activeEmployees.find((employee) => employee.id === membership?.employeeId);
 
   // ShiftSizzle is for every employee, not just managers — team-wide
   // operational content (coverage metrics, publish status) only makes
   // sense for whoever is actually running the schedule. Everyone else
   // just needs their own shifts, business hours, and any notes.
-  const isManager = me?.roles?.includes(BASE_TEAM_ROLES.MANAGER) ?? false;
+  const isManager = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
 
   // One row per day of the week — mirrors Business Hours' day-row list.
   // Each row still checks every role the employee holds, since someone
@@ -143,6 +140,23 @@ export const Dashboard = () => {
     [activeEmployees, schedule.assignments, schedule.roleRequirements, shiftTypes, teamRoles]
   );
 
+  const toggleMyAvailability = (day, shift) => {
+    if (!me) {
+      return;
+    }
+
+    const currentDayShifts = me.availability?.[day] ?? [];
+    const hasShift = currentDayShifts.includes(shift);
+    const nextDayShifts = hasShift
+      ? currentDayShifts.filter((currentShift) => currentShift !== shift)
+      : [...currentDayShifts, shift];
+
+    dispatch({
+      type: 'UPSERT_EMPLOYEE',
+      payload: { ...me, availability: { ...me.availability, [day]: nextDayShifts } },
+    });
+  };
+
   const dashboardCards = [
     { label: 'Active employees', value: activeEmployees.length, accent: 'orange' },
     { label: 'Assigned shifts', value: assignedShiftCount, accent: 'blue' },
@@ -155,7 +169,7 @@ export const Dashboard = () => {
         <div className="dashboard__hero">
           <div>
             <p className="dashboard__eyebrow">{settings.locationName}</p>
-            <h1>Hello, {settings.currentUserName}</h1>
+            <h1>Hello, {me?.name ?? user?.email}</h1>
             <p className="dashboard__summary">
               {isManager
                 ? `${schedule.status === 'published' ? 'Published' : 'Draft'} schedule for ${schedule.weekLabel} covering every role.`
@@ -186,7 +200,7 @@ export const Dashboard = () => {
             <h3>My Schedule</h3>
             {!me ? (
               <p className="dashboard__myschedule-empty">
-                Set "This is me" in Settings to see your personal schedule here.
+                Ask a manager to link your account to a roster profile to see your personal schedule here.
               </p>
             ) : openDays.length === 0 ? (
               <p className="dashboard__myschedule-empty">No operating days are enabled.</p>
@@ -215,6 +229,35 @@ export const Dashboard = () => {
               </div>
             )}
           </div>
+          {me && (
+            <div className="dashboard__panel dashboard__panel--availability">
+              <h3>My Availability</h3>
+              <div className="dashboard__availability-rows">
+                {openDays.map((day) => (
+                  <div key={day} className="dashboard__availability-row">
+                    <strong className="dashboard__myschedule-day">{day.slice(0, 3)}</strong>
+                    <div className="dashboard__availability-shifts">
+                      {shiftTypes.map((shift) => {
+                        const isAvailable = (me.availability?.[day] ?? []).includes(shift);
+
+                        return (
+                          <button
+                            key={shift}
+                            type="button"
+                            className={`dashboard__availability-toggle ${isAvailable ? 'is-available' : ''}`.trim()}
+                            onClick={() => toggleMyAvailability(day, shift)}
+                            aria-pressed={isAvailable}
+                          >
+                            {shift}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="dashboard__panel dashboard__panel--highlight">
             <h3>Manager Notes</h3>
             <p>{schedule.notes}</p>

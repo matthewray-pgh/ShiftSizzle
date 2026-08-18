@@ -1,21 +1,89 @@
-import { render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useEffect, useRef } from 'react';
+import { screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AppStateProvider } from '../../state/AppState';
+import { useAppState } from '../../state/AppState';
 import { renderView } from '../../test/renderView';
 import { Dashboard } from './Dashboard';
 
-const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+vi.mock('../../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
+
+const { supabase } = await import('../../lib/supabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
+
+const grid = (openValue = 0) => ({
+  Sunday: { Open: 0 },
+  Monday: { Open: openValue },
+  Tuesday: { Open: 0 },
+  Wednesday: { Open: 0 },
+  Thursday: { Open: 0 },
+  Friday: { Open: 0 },
+  Saturday: { Open: 0 },
+});
+
+const emptyAssignments = () => ({
+  Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [],
+});
+
+const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] };
+
+const mondayOnlyOperatingHours = {
+  Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+  Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+  Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+  Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+  Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+  Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+  Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+};
+
+const mondayTuesdayOperatingHours = {
+  ...mondayOnlyOperatingHours,
+  Tuesday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+};
+
+// Selects a different (future) week in the live editing canvas and dirties
+// it, once org data has hydrated — simulates a manager who is mid-draft on
+// a future week in the Scheduler while the Dashboard should keep showing
+// the actual current week, sourced from saved history instead.
+const DashboardWithMidDraftFutureWeek = () => {
+  const { state, dispatch } = useAppState();
+  const hasRunRef = useRef(false);
+
+  useEffect(() => {
+    if (state.isHydrated && !hasRunRef.current) {
+      hasRunRef.current = true;
+      dispatch({ type: 'SELECT_WEEK', payload: { startDate: '2026-06-21' } });
+      dispatch({ type: 'UPDATE_REQUIREMENTS', payload: { role: 'Manager', day: 'Monday', shift: 'Open', value: 9 } });
+      dispatch({ type: 'UPDATE_SCHEDULE_NOTES', payload: 'Draft notes for the future week.' });
+    }
+  }, [state.isHydrated, dispatch]);
+
+  return <Dashboard />;
+};
 
 describe('Dashboard view', () => {
+  beforeEach(() => {
+    resetFakeSupabase();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('renders the dashboard page', () => {
-    renderView(Dashboard);
+  it('renders the dashboard page', async () => {
+    await renderView(Dashboard);
 
-    expect(screen.getByText('Hello, Jennifer')).toBeInTheDocument();
+    expect(screen.getByText('Hello, Jen Ray')).toBeInTheDocument();
     expect(screen.getByText('Active employees')).toBeInTheDocument();
     expect(screen.getByText('Business Hours')).toBeInTheDocument();
 
@@ -37,68 +105,49 @@ describe('Dashboard view', () => {
   // other filtered to a single selected role. Both must now aggregate
   // across every role for the active week, and stay consistent regardless
   // of which role most recently had focus.
-  it('aggregates Assigned and Open shifts across every role, not just one', () => {
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: {
-        shiftTypes: ['Open'],
-        weekStartsOn: 'Sunday',
-        operatingHours: {
-          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        },
-      },
-      employees: [
-        {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
-        },
-        {
-          id: 2,
-          name: 'Ava Cole',
-          roles: ['Server'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
-        },
-      ],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        // Manager is fully covered (1 required, 1 assigned); Server has a
-        // gap (2 required, 0 assigned). Total: 1 assigned shift, 2 open.
-        roleRequirements: {
-          Manager: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-          Server: { Sunday: { Open: 0 }, Monday: { Open: 2 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        },
-        assignments: {
-          Manager: { 1: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-          Server: { 2: { Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-        },
-      },
-    }));
-
+  it('aggregates Assigned and Open shifts across every role, not just one', async () => {
+    // Only Date is faked (not timers) so RTL's async findBy/waitFor polling
+    // (used to await the async Supabase hydration) keeps working — a bare
+    // vi.useFakeTimers() would freeze setTimeout and hang that polling.
+    vi.useFakeTimers({ toFake: ['Date'] });
     // Pin "today" to a Wednesday inside the seeded week (May 24-30, 2026)
     // so the Dashboard resolves this as the current week regardless of
     // which day within it "today" happens to fall on.
-    vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-27T12:00:00'));
 
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
+    await renderView(Dashboard, {
+      settings: {
+        shiftTypes: ['Open'],
+        weekStartsOn: 'Sunday',
+        operatingHours: mondayOnlyOperatingHours,
+      },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+      ],
+      // Manager is fully covered (1 required, 1 assigned); Server has a
+      // gap (2 required, 0 assigned). Total: 1 assigned shift, 2 open.
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Manager',
+          status: 'draft',
+          requirements: grid(1),
+          assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Server',
+          status: 'draft',
+          requirements: grid(2),
+          assignments: { 2: emptyAssignments() },
+        },
+      ],
+    });
 
     expect(screen.getByText('Assigned shifts')).toBeInTheDocument();
     const assignedCard = screen.getByText('Assigned shifts').closest('.dashboard__metric');
@@ -108,69 +157,36 @@ describe('Dashboard view', () => {
     expect(openCard).toHaveTextContent('2');
   });
 
-  it('shows the current week\'s schedule even when a different week is loaded in the Scheduler canvas', () => {
-    vi.useFakeTimers();
+  it('shows the current week\'s schedule even when a different week is loaded in the Scheduler canvas', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-05-27T12:00:00')); // Wednesday inside the May 24-30 week
 
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    await renderView(DashboardWithMidDraftFutureWeek, {
       settings: {
         shiftTypes: ['Open'],
         weekStartsOn: 'Sunday',
-        operatingHours: {
-          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        },
+        operatingHours: mondayOnlyOperatingHours,
       },
       employees: [
-        {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
-        },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      // The manager is mid-draft on a FUTURE week in the Scheduler...
-      schedule: {
-        weekLabel: 'Jun 21 - Jun 27, 2026',
-        startDate: '2026-06-21',
-        endDate: '2026-06-27',
-        roleRequirements: {
-          Manager: { Sunday: { Open: 0 }, Monday: { Open: 9 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        },
-        assignments: { Manager: { 1: { Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } } },
-        notes: 'Draft notes for the future week.',
-      },
-      // ...but the CURRENT week already has a published schedule.
+      // The CURRENT week already has a published schedule; the harness
+      // above puts the live canvas mid-draft on a FUTURE week instead.
       schedules: [{
-        id: '2026-05-24__Manager',
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
         role: 'Manager',
         status: 'published',
-        requirements: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        assignments: { 1: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
         notes: 'Patio opens for summer.',
         savedAt: '2026-05-20T12:00:00.000Z',
         publishedAt: '2026-05-20T12:00:00.000Z',
       }],
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
-
-    expect(screen.getAllByText(/May 24 - May 30, 2026/).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/May 24 - May 30, 2026/)).length).toBeGreaterThan(0);
     expect(screen.queryAllByText(/Jun 21 - Jun 27, 2026/).length).toBe(0);
     expect(screen.getByText('Patio opens for summer.')).toBeInTheDocument();
     expect(screen.queryByText('Draft notes for the future week.')).not.toBeInTheDocument();
@@ -182,68 +198,51 @@ describe('Dashboard view', () => {
     expect(openCard).toHaveTextContent('0');
   });
 
-  it('shows the logged-in employee\'s own shifts in the My Schedule panel, not the whole roster', () => {
-    vi.useFakeTimers();
+  it('shows the logged-in employee\'s own shifts in the My Schedule panel, not the whole roster', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-05-27T12:00:00'));
 
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    await renderView(Dashboard, {
+      employeeId: '2',
       settings: {
         shiftTypes: ['Open'],
         weekStartsOn: 'Sunday',
-        currentUserEmployeeId: 2,
-        operatingHours: {
-          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Tuesday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        },
+        operatingHours: mondayTuesdayOperatingHours,
       },
       employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+      ],
+      schedules: [
         {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Manager',
+          status: 'draft',
+          requirements: grid(1),
+          assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
         },
         {
-          id: 2,
-          name: 'Ava Cole',
-          roles: ['Server'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Server',
+          status: 'draft',
+          requirements: grid(0),
+          assignments: { 2: { ...emptyAssignments(), Tuesday: ['Open'] } },
         },
       ],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        roleRequirements: {
-          Manager: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        },
-        assignments: {
-          Manager: { 1: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-          Server: { 2: { Sunday: [], Monday: [], Tuesday: ['Open'], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-        },
-      },
-    }));
-
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
+    });
 
     expect(screen.getByText('My Schedule')).toBeInTheDocument();
 
-    const mondayRow = screen.getByText('Mon', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
-    const tuesdayRow = screen.getByText('Tue', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
+    // Scoped to the My Schedule panel specifically — the My Availability
+    // panel below it reuses the same day-label class for its own Mon/Tue
+    // rows.
+    const myScheduleSection = screen.getByText('My Schedule').closest('.dashboard__panel--myschedule');
+    const mondayRow = within(myScheduleSection).getByText('Mon', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
+    const tuesdayRow = within(myScheduleSection).getByText('Tue', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
 
     // Ava (the logged-in user) is Off Monday even though Jen has a Monday
     // shift — this panel is scoped to the logged-in user, not the roster.
@@ -252,63 +251,52 @@ describe('Dashboard view', () => {
     expect(screen.queryByText('Jen Ray')).not.toBeInTheDocument();
   });
 
-  it('shows one My Schedule row per day, labeling each shift with its role for an employee who holds multiple roles', () => {
-    vi.useFakeTimers();
+  it('shows one My Schedule row per day, labeling each shift with its role for an employee who holds multiple roles', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-05-27T12:00:00'));
 
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    await renderView(Dashboard, {
+      employeeId: '3',
       settings: {
         shiftTypes: ['Open'],
         weekStartsOn: 'Sunday',
-        currentUserEmployeeId: 3,
-        operatingHours: {
-          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Tuesday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        },
+        operatingHours: mondayTuesdayOperatingHours,
       },
       employees: [
+        { id: '3', name: 'Kayla Brooks', roles: ['Bartender', 'Server'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [
         {
-          id: 3,
-          name: 'Kayla Brooks',
-          roles: ['Bartender', 'Server'],
-          status: 'active',
-          shiftsPerWeek: 5,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Bartender',
+          status: 'draft',
+          requirements: grid(1),
+          assignments: { 3: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026',
+          startDate: '2026-05-24',
+          endDate: '2026-05-30',
+          role: 'Server',
+          status: 'draft',
+          requirements: grid(0),
+          assignments: { 3: { ...emptyAssignments(), Tuesday: ['Open'] } },
         },
       ],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        roleRequirements: {
-          Bartender: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-          Server: { Sunday: { Open: 0 }, Monday: { Open: 0 }, Tuesday: { Open: 1 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        },
-        assignments: {
-          Bartender: { 3: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-          Server: { 3: { Sunday: [], Monday: [], Tuesday: ['Open'], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-        },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
-
-    const rows = screen.getAllByText(/^(Mon|Tue)$/, { selector: '.dashboard__myschedule-day' });
+    // Scoped to the My Schedule panel specifically — the My Availability
+    // panel below it reuses the same day-label class for its own Mon/Tue
+    // rows.
+    const myScheduleSection = screen.getByText('My Schedule').closest('.dashboard__panel--myschedule');
+    const rows = within(myScheduleSection).getAllByText(/^(Mon|Tue)$/, { selector: '.dashboard__myschedule-day' });
 
     expect(rows).toHaveLength(2);
 
-    const mondayRow = screen.getByText('Mon', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
-    const tuesdayRow = screen.getByText('Tue', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
+    const mondayRow = within(myScheduleSection).getByText('Mon', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
+    const tuesdayRow = within(myScheduleSection).getByText('Tue', { selector: '.dashboard__myschedule-day' }).closest('.dashboard__myschedule-row');
 
     // Monday: only the Bartender shift is worked, labeled with its role
     // since Kayla holds more than one.
@@ -318,64 +306,33 @@ describe('Dashboard view', () => {
     expect(within(tuesdayRow).getByText('Server: Open')).toBeInTheDocument();
   });
 
-  it('hides manager-only content (metrics, status badge, Publish Status) for a non-manager employee', () => {
-    vi.useFakeTimers();
+  it('hides manager-only content (metrics, status badge, Publish Status) for a non-manager employee', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-05-27T12:00:00'));
 
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    await renderView(Dashboard, {
+      employeeId: '2',
+      accountRole: 'staff',
       settings: {
         shiftTypes: ['Open'],
         weekStartsOn: 'Sunday',
-        currentUserEmployeeId: 2,
-        operatingHours: {
-          Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-          Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-          Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        },
+        operatingHours: mondayOnlyOperatingHours,
       },
       employees: [
-        {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
-        },
-        {
-          id: 2,
-          name: 'Ava Cole',
-          roles: ['Server'],
-          status: 'active',
-          shiftsPerWeek: 2,
-          availability: { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] },
-        },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
         notes: 'Patio opens for summer.',
-        roleRequirements: {
-          Manager: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        },
-        assignments: {
-          Manager: { 1: { Sunday: [], Monday: ['Open'], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-          Server: { 2: { Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] } },
-        },
-      },
-    }));
-
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
+      }],
+    });
 
     // Manager-only content is gone
     expect(screen.queryByText('Active employees')).not.toBeInTheDocument();
@@ -392,19 +349,15 @@ describe('Dashboard view', () => {
     expect(screen.getByText('Patio opens for summer.')).toBeInTheDocument();
   });
 
-  it('prompts to set "This is me" in Settings when no employee is linked to the logged-in user', () => {
-    window.localStorage.clear();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { currentUserEmployeeId: '' },
-    }));
-
-    render(
-      <AppStateProvider>
-        <Dashboard />
-      </AppStateProvider>
-    );
+  // The old "This is me" Settings stand-in for sign-in is gone — identity
+  // now comes from useAuth()'s membership. "No employee linked" is now
+  // represented by a membership with no employeeId, and Dashboard.jsx's
+  // prompt copy changed to point at inviting/linking a roster profile
+  // instead of a Settings field that no longer exists.
+  it('prompts to link a roster profile in My Schedule when no employee is linked to the logged-in user', async () => {
+    await renderView(Dashboard, { employees: [], employeeId: null });
 
     expect(screen.getByText('My Schedule')).toBeInTheDocument();
-    expect(screen.getByText(/Set "This is me" in Settings/)).toBeInTheDocument();
+    expect(screen.getByText(/Ask a manager to link your account to a roster profile/)).toBeInTheDocument();
   });
 });

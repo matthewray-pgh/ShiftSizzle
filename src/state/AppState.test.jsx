@@ -1,12 +1,42 @@
+import { useEffect, useRef } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider, useAppState } from './AppState';
+import { AuthProvider } from './AuthState';
 
-const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+vi.mock('../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
 
-const TestHarness = () => {
+const { supabase } = await import('../lib/supabaseClient');
+const { seedFakeSupabase } = await import('../test/fakeSupabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
+
+// Selects `initialWeek` once org data has loaded — has to wait for
+// isHydrated rather than firing immediately on mount, since SELECT_WEEK's
+// buildWeekRange needs the real settings.weekStartsOn (not the pre-hydrate
+// default of "") to resolve a startDate instead of resetting it to "".
+// Mirrors a manager navigating to a specific week via the Scheduler, just
+// triggered automatically for tests.
+const TestHarness = ({ initialWeek }) => {
   const { state, dispatch } = useAppState();
+  const hasSelectedRef = useRef(false);
+
+  useEffect(() => {
+    if (initialWeek && state.isHydrated && !hasSelectedRef.current) {
+      hasSelectedRef.current = true;
+      dispatch({ type: 'SELECT_WEEK', payload: { startDate: initialWeek } });
+    }
+  }, [initialWeek, state.isHydrated, dispatch]);
+
   const employeeId = state.employees[0]?.id;
   const assignedCount = employeeId
     ? Object.values(state.schedule.assignments).reduce(
@@ -107,6 +137,15 @@ const TestHarness = () => {
   );
 };
 
+const renderHarness = (initialWeek) =>
+  render(
+    <AuthProvider>
+      <AppStateProvider>
+        <TestHarness initialWeek={initialWeek} />
+      </AppStateProvider>
+    </AuthProvider>,
+  );
+
 const twoRoleOperatingHours = {
   Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
   Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
@@ -134,8 +173,7 @@ const emptyAssignments = () => ({
 const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] };
 
 beforeEach(() => {
-  window.localStorage.clear();
-  vi.restoreAllMocks();
+  resetFakeSupabase();
 });
 
 afterEach(() => {
@@ -143,100 +181,59 @@ afterEach(() => {
 });
 
 describe('AppState scheduling', () => {
-  it('respects each employee shifts per week cap during auto-build', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: {
-        shiftTypes: ['Open'],
-        weekStartsOn: 'Monday',
-        operatingHours: twoRoleOperatingHours,
-      },
+  it('respects each employee shifts per week cap during auto-build', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          shiftsPerWeek: 1,
-          status: 'active',
-          availability: availableEveryDay,
-        },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 25 - May 31, 2026',
         startDate: '2026-05-25',
         endDate: '2026-05-31',
-        roleRequirements: {
-          Manager: emptyWeekGrid(1),
-        },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-25');
+    await screen.findByText('Manager Monday Open requirement: 1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate draft' }));
 
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
   });
 
-  it('prevents manual assignments from exceeding shifts per week cap', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], operatingHours: twoRoleOperatingHours },
+  it('prevents manual assignments from exceeding shifts per week cap', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        {
-          id: 1,
-          name: 'Jen Ray',
-          roles: ['Manager'],
-          shiftsPerWeek: 1,
-          status: 'active',
-          availability: availableEveryDay,
-        },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        roleRequirements: { Manager: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness();
+    await screen.findByText('Manager Monday Open requirement: 0');
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle Monday Open as Manager' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle Tuesday Open as Manager' }));
+    expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Tuesday Open as Manager' }));
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
   });
 
-  it('blocks scheduling a second role once the employee\'s cross-role weekly cap is reached', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], operatingHours: twoRoleOperatingHours },
+  it('blocks scheduling a second role once the employee\'s cross-role weekly cap is reached', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        {
-          id: 1,
-          name: 'Kayla Brooks',
-          roles: ['Manager', 'Server'],
-          shiftsPerWeek: 1,
-          status: 'active',
-          availability: availableEveryDay,
-        },
+        { id: '1', name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        roleRequirements: { Manager: emptyWeekGrid(0), Server: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 1: emptyAssignments() } },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness();
+    await screen.findByText('Manager Monday Open requirement: 0');
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle Monday Open as Manager' }));
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
@@ -246,30 +243,16 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
   });
 
-  it('blocks double-booking the same day and shift under a different role, and releases it when toggled off', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], operatingHours: twoRoleOperatingHours },
+  it('blocks double-booking the same day and shift under a different role, and releases it when toggled off', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        {
-          id: 1,
-          name: 'Kayla Brooks',
-          roles: ['Manager', 'Server'],
-          shiftsPerWeek: 5,
-          status: 'active',
-          availability: availableEveryDay,
-        },
+        { id: '1', name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        roleRequirements: { Manager: emptyWeekGrid(0), Server: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 1: emptyAssignments() } },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness();
+    await screen.findByText('Manager Monday Open requirement: 0');
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle Monday Open as Manager' }));
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
@@ -287,38 +270,36 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
   });
 
-  it('auto-build respects an employee\'s existing assignment under another role', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('auto-build respects an employee\'s existing assignment under another role', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
+        { id: '1', name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay },
+      ],
+      schedules: [
         {
-          id: 1,
-          name: 'Kayla Brooks',
-          roles: ['Manager', 'Server'],
-          shiftsPerWeek: 1,
-          status: 'active',
-          availability: availableEveryDay,
+          weekLabel: 'May 25 - May 31, 2026',
+          startDate: '2026-05-25',
+          endDate: '2026-05-31',
+          role: 'Manager',
+          status: 'draft',
+          requirements: emptyWeekGrid(1),
+          assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 25 - May 31, 2026',
+          startDate: '2026-05-25',
+          endDate: '2026-05-31',
+          role: 'Server',
+          status: 'draft',
+          requirements: emptyWeekGrid(1),
+          assignments: { 1: emptyAssignments() },
         },
       ],
-      schedule: {
-        weekLabel: 'May 25 - May 31, 2026',
-        startDate: '2026-05-25',
-        endDate: '2026-05-31',
-        roleRequirements: { Manager: emptyWeekGrid(1), Server: emptyWeekGrid(1) },
-        assignments: {
-          Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
-          Server: { 1: emptyAssignments() },
-        },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
-
-    expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
+    renderHarness('2026-05-25');
+    await screen.findByText('Assigned count: 1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Auto-build Server' }));
 
@@ -327,26 +308,26 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
   });
 
-  it('keeps coverage targets independent per role on the shared week', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], operatingHours: twoRoleOperatingHours },
+  it('keeps coverage targets independent per role on the shared week', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        roleRequirements: { Manager: emptyWeekGrid(1), Server: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() }, Server: { 2: emptyAssignments() } },
-      },
-    }));
+      schedules: [{
+        startDate: '2026-06-01',
+        endDate: '2026-06-07',
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-06-01');
+    await screen.findByText('Manager Monday Open requirement: 1');
 
-    expect(screen.getByText('Manager Monday Open requirement: 1')).toBeInTheDocument();
     expect(screen.getByText('Server Monday Open requirement: 0')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Set Server Monday Open to 4' }));
@@ -355,17 +336,11 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Server Monday Open requirement: 4')).toBeInTheDocument();
   });
 
-  it('does not update coverage requirements when no role is provided', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'] },
-      schedule: { roleRequirements: { Manager: emptyWeekGrid(0) } },
-    }));
+  it('does not update coverage requirements when no role is provided', async () => {
+    seedFakeSupabase(supabase, { settings: { shiftTypes: ['Open'] } });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness();
+    await screen.findByText('Manager Monday Open requirement: 0');
 
     fireEvent.click(screen.getByRole('button', { name: 'Set requirement with no role' }));
 
@@ -373,23 +348,24 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
   });
 
-  it('applies one day\'s coverage targets to every day for that role only', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], operatingHours: twoRoleOperatingHours },
+  it('applies one day\'s coverage targets to every day for that role only', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        roleRequirements: { Manager: emptyWeekGrid(3), Server: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+      schedules: [{
+        startDate: '2026-06-01',
+        endDate: '2026-06-07',
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(3),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-06-01');
+    await screen.findByText('Manager Monday Open requirement: 3');
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply Manager Monday to all days' }));
 
@@ -397,68 +373,69 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Server Monday Open requirement: 0')).toBeInTheDocument();
   });
 
-  it('requires signal before publishing and blocks it while any role with demand still has an open slot', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('requires signal before publishing and blocks it while any role with demand still has an open slot', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
-        weekLabel: 'May 25 - May 31, 2026',
-        startDate: '2026-05-25',
-        endDate: '2026-05-31',
-        roleRequirements: {
-          Manager: emptyWeekGrid(1),
-          Server: emptyWeekGrid(1),
+      schedules: [
+        {
+          weekLabel: 'May 25 - May 31, 2026',
+          startDate: '2026-05-25',
+          endDate: '2026-05-31',
+          role: 'Manager',
+          status: 'draft',
+          requirements: emptyWeekGrid(1),
+          assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
         },
-        assignments: {
-          Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
-          Server: { 2: emptyAssignments() },
+        {
+          weekLabel: 'May 25 - May 31, 2026',
+          startDate: '2026-05-25',
+          endDate: '2026-05-31',
+          role: 'Server',
+          status: 'draft',
+          requirements: emptyWeekGrid(1),
+          assignments: { 2: emptyAssignments() },
         },
-      },
-    }));
+      ],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-25');
+    await screen.findByText('Saved schedules count: 2');
 
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
 
     expect(screen.getByText('Schedule status: draft')).toBeInTheDocument();
-    expect(screen.getByText('Saved schedules count: 0')).toBeInTheDocument();
+    expect(screen.getByText('Saved schedules count: 2')).toBeInTheDocument();
   });
 
-  it('saves one record per role with signal, skipping roles with no demand or assignments', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('saves one record per role with signal, skipping roles with no demand or assignments', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: 2, name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 25 - May 31, 2026',
         startDate: '2026-05-25',
         endDate: '2026-05-31',
-        roleRequirements: {
-          Manager: emptyWeekGrid(1),
-          Server: emptyWeekGrid(0),
-        },
-        assignments: {
-          Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
-          Server: { 2: emptyAssignments() },
-        },
-        hasUnsavedChanges: true,
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-25');
+    await screen.findByText('Saved schedules count: 1');
+
+    // Dirty the draft without touching Manager's seeded requirement value —
+    // Server still has zero requirements/assignments (the default), so it
+    // stays signal-free and should be skipped on save.
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Tuesday Open as Manager' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
 
@@ -466,34 +443,35 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('2026-05-25__Manager · draft')).toBeInTheDocument();
   });
 
-  it('publishing upserts the same record instead of duplicating it', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: {
-        Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-        Tuesday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
-        Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-        Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
-      } },
+  it('publishing upserts the same record instead of duplicating it', async () => {
+    const customOperatingHours = {
+      Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+      Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+      Tuesday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+      Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+      Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+      Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+      Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+    };
+
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: customOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: emptyWeekGrid(1) },
-        assignments: { Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } } },
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-24');
+    await screen.findByText('Saved schedules count: 1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
     expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
@@ -506,22 +484,13 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
   });
 
-  it('resets every role\'s requirements and assignments for the week without touching saved history', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('resets every role\'s requirements and assignments for the week without touching saved history', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        notes: 'Bring in patio support.',
-        roleRequirements: { Manager: emptyWeekGrid(1), Server: emptyWeekGrid(2) },
-        assignments: { Manager: { 1: { ...emptyAssignments(), Monday: ['Open'] } } },
-      },
       schedules: [{
-        id: '2026-05-24__Manager',
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
@@ -533,13 +502,13 @@ describe('AppState scheduling', () => {
         savedAt: '2026-05-20T12:00:00.000Z',
         publishedAt: '2026-05-20T12:00:00.000Z',
       }],
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-24');
+    await screen.findByText('Manager Monday Open requirement: 1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set Server Monday Open to 4' }));
+    expect(screen.getByText('Server Monday Open requirement: 4')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset week' }));
 
@@ -552,27 +521,28 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('2026-05-24__Manager · published')).toBeInTheDocument();
   });
 
-  it('keeps a saved draft resumable after switching to a different week and back', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('keeps a saved draft resumable after switching to a different week and back', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      schedule: {
+      schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
         endDate: '2026-05-30',
-        roleRequirements: { Manager: emptyWeekGrid(1) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-        hasUnsavedChanges: true,
-      },
-    }));
+        role: 'Manager',
+        status: 'draft',
+        requirements: emptyWeekGrid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-24');
+    await screen.findByText('Manager Monday Open requirement: 1');
+
+    // Dirty the draft without touching the seeded requirement value.
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Monday Open as Manager' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
     expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
@@ -588,28 +558,21 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Schedule status: draft')).toBeInTheDocument();
   });
 
-  it('autosaves an unsaved edit into schedule history a couple seconds after the user stops typing', () => {
-    vi.useFakeTimers();
-
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  it('autosaves an unsaved edit into schedule history a couple seconds after the user stops typing', async () => {
+    seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
       employees: [
-        { id: 1, name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
       ],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        roleRequirements: { Manager: emptyWeekGrid(0) },
-        assignments: { Manager: { 1: emptyAssignments() } },
-      },
-    }));
+    });
 
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
+    renderHarness('2026-05-24');
+    await screen.findByText('Manager Monday Open requirement: 0');
+
+    // Switch to fake timers only after the async hydration above has
+    // already settled, so RTL's polling isn't stuck waiting on a clock
+    // that never advances.
+    vi.useFakeTimers();
 
     fireEvent.click(screen.getByRole('button', { name: 'Set Manager Monday Open to 2' }));
 
@@ -622,48 +585,6 @@ describe('AppState scheduling', () => {
 
     expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
     expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
-    expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
-  });
-
-  it('migrates legacy publishHistory and an unpublished saved draft into schedules on load', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday' },
-      employees: [{ id: 1, name: 'Jen Ray', role: 'Manager', status: 'active' }],
-      schedule: {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        selectedRole: 'Manager',
-        status: 'draft',
-        lastSavedAt: '2026-05-20T12:00:00.000Z',
-        hasUnsavedChanges: false,
-        notes: 'Legacy saved draft',
-        requirements: { Sunday: { Open: 0 }, Monday: { Open: 1 }, Tuesday: { Open: 0 }, Wednesday: { Open: 0 }, Thursday: { Open: 0 }, Friday: { Open: 0 }, Saturday: { Open: 0 } },
-        assignments: {},
-        publishHistory: [
-          {
-            id: 'legacy-1',
-            weekLabel: 'May 17 - May 23, 2026',
-            startDate: '2026-05-17',
-            endDate: '2026-05-23',
-            selectedRole: 'Server',
-            publishedAt: '2026-05-16T12:00:00.000Z',
-            requirements: {},
-            assignments: {},
-            notes: '',
-          },
-        ],
-      },
-    }));
-
-    render(
-      <AppStateProvider>
-        <TestHarness />
-      </AppStateProvider>,
-    );
-
-    expect(screen.getByText('Saved schedules count: 2')).toBeInTheDocument();
-    expect(screen.getByText('2026-05-17__Server · published')).toBeInTheDocument();
     expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
   });
 });
