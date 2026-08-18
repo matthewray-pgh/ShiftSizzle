@@ -1,59 +1,109 @@
+import { useEffect, useRef } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AppStateProvider } from '../../state/AppState';
+import { AppStateProvider, useAppState } from '../../state/AppState';
+import { AuthProvider } from '../../state/AuthState';
 import { renderView } from '../../test/renderView';
 import { History } from './History';
 
-const STORAGE_KEY = 'shiftsizzle.app-state.v1';
+vi.mock('../../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
+
+const { supabase } = await import('../../lib/supabaseClient');
+const { seedFakeSupabase } = await import('../../test/fakeSupabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
+
+const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] };
+
+// History.jsx reads a saved/published record's `metrics`/`coverageGaps`/
+// `shiftCapAlerts` straight off the record itself — those are computed by
+// the reducer's SAVE_SCHEDULE_DRAFT/PUBLISH_SCHEDULE actions
+// (buildScheduleRecordFromLiveSchedule) but are NOT columns Supabase
+// persists (see schedule_records in fakeSupabaseClient.js / supabaseSync.js),
+// so a record seeded directly via seedFakeSupabase (i.e. "loaded from a
+// previous session") would come back without them. To exercise History
+// with fully-populated records the same way the running app produces them,
+// this harness builds the schedules by dispatching the real actions
+// (mirrors the TestHarness pattern in AppState.test.jsx) instead of
+// pre-seeding `schedules[]` directly.
+const HistoryTestHarness = () => {
+  const { state, dispatch } = useAppState();
+  const hasRunRef = useRef(false);
+
+  useEffect(() => {
+    if (!state.isHydrated || hasRunRef.current) {
+      return;
+    }
+
+    hasRunRef.current = true;
+
+    // Server week: May 25 - May 31, 2026 — draft, 2 required / 1 assigned.
+    dispatch({ type: 'SELECT_WEEK', payload: { startDate: '2026-05-25' } });
+    dispatch({ type: 'UPDATE_REQUIREMENTS', payload: { role: 'Server', day: 'Monday', shift: 'Open', value: 2 } });
+    dispatch({ type: 'TOGGLE_ASSIGNMENT', payload: { employeeId: '2', role: 'Server', day: 'Monday', shift: 'Open' } });
+    dispatch({ type: 'SAVE_SCHEDULE_DRAFT' });
+
+    // Manager week: Jun 1 - Jun 7, 2026 — published, 1 required / 1 assigned.
+    dispatch({ type: 'SELECT_WEEK', payload: { startDate: '2026-06-01' } });
+    dispatch({ type: 'UPDATE_REQUIREMENTS', payload: { role: 'Manager', day: 'Monday', shift: 'Open', value: 1 } });
+    dispatch({ type: 'TOGGLE_ASSIGNMENT', payload: { employeeId: '1', role: 'Manager', day: 'Monday', shift: 'Open' } });
+    dispatch({ type: 'UPDATE_SCHEDULE_NOTES', payload: 'Cover the patio.' });
+    dispatch({ type: 'PUBLISH_SCHEDULE' });
+  }, [state.isHydrated, dispatch]);
+
+  return <History />;
+};
+
+const renderHistoryWithTwoSavedWeeks = async () => {
+  seedFakeSupabase(supabase, {
+    settings: {
+      shiftTypes: ['Open'],
+      weekStartsOn: 'Monday',
+      operatingHours: {
+        Sunday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        Monday: { isOpen: true, openTime: '11:00', closeTime: '21:00' },
+        Tuesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        Wednesday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        Thursday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        Friday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+        Saturday: { isOpen: false, openTime: '11:00', closeTime: '21:00' },
+      },
+    },
+    employees: [
+      { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      { id: '2', name: 'Ava Cole', roles: ['Server'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+    ],
+  });
+
+  render(
+    <AuthProvider>
+      <AppStateProvider>
+        <HistoryTestHarness />
+      </AppStateProvider>
+    </AuthProvider>
+  );
+
+  // Wait for both weeks to be built and saved before interacting.
+  await screen.findByText('Jun 1 - Jun 7, 2026');
+};
 
 beforeEach(() => {
-  window.localStorage.clear();
+  resetFakeSupabase();
   window.history.replaceState({}, '', '/schedule');
 });
 
-const managerRecord = {
-  id: '2026-06-01__Manager',
-  weekLabel: 'Jun 1 - Jun 7, 2026',
-  startDate: '2026-06-01',
-  endDate: '2026-06-07',
-  role: 'Manager',
-  status: 'published',
-  requirements: { Monday: { Open: 1 } },
-  assignments: { 1: { Monday: ['Open'] } },
-  notes: 'Cover the patio.',
-  savedAt: '2026-05-30T12:00:00.000Z',
-  publishedAt: '2026-05-30T18:00:00.000Z',
-  coverageGaps: [],
-  shiftCapAlerts: [],
-  metrics: { requiredSlots: 1, assignedSlots: 1, openSlots: 0, roleEmployeeCount: 1 },
-};
-
-const serverRecord = {
-  id: '2026-05-25__Server',
-  weekLabel: 'May 25 - May 31, 2026',
-  startDate: '2026-05-25',
-  endDate: '2026-05-31',
-  role: 'Server',
-  status: 'draft',
-  requirements: { Monday: { Open: 2 } },
-  assignments: { 2: { Monday: ['Open'] } },
-  notes: '',
-  savedAt: '2026-05-24T12:00:00.000Z',
-  publishedAt: null,
-  coverageGaps: [{ day: 'Monday', shift: 'Open', open: 1 }],
-  shiftCapAlerts: [],
-  metrics: { requiredSlots: 2, assignedSlots: 1, openSlots: 1, roleEmployeeCount: 1 },
-};
-
-const employees = [
-  { id: 1, name: 'Jen Ray', role: 'Manager', status: 'active', shiftsPerWeek: 5, availability: {} },
-  { id: 2, name: 'Ava Cole', role: 'Server', status: 'active', shiftsPerWeek: 5, availability: {} },
-];
-
 describe('History view', () => {
-  it('shows an onboarding empty state when no schedules exist', () => {
-    renderView(History);
+  it('shows an onboarding empty state when no schedules exist', async () => {
+    await renderView(History);
 
     expect(screen.getByText('No schedules yet')).toBeInTheDocument();
 
@@ -61,17 +111,8 @@ describe('History view', () => {
     expect(window.location.hash).toBe('#/schedule/build');
   });
 
-  it('lists saved and published schedules newest to oldest with status badges', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      employees,
-      schedules: [serverRecord, managerRecord],
-    }));
-
-    render(
-      <AppStateProvider>
-        <History />
-      </AppStateProvider>,
-    );
+  it('lists saved and published schedules newest to oldest with status badges', async () => {
+    await renderHistoryWithTwoSavedWeeks();
 
     expect(screen.getByText('All schedules')).toBeInTheDocument();
     const items = screen.getAllByRole('listitem');
@@ -83,17 +124,8 @@ describe('History view', () => {
     expect(within(items[1]).getByText('draft')).toBeInTheDocument();
   });
 
-  it('opens a schedule detail view with a resume link back to Scheduler', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      employees,
-      schedules: [managerRecord],
-    }));
-
-    render(
-      <AppStateProvider>
-        <History />
-      </AppStateProvider>,
-    );
+  it('opens a schedule detail view with a resume link back to Scheduler', async () => {
+    await renderHistoryWithTwoSavedWeeks();
 
     fireEvent.click(screen.getByRole('button', { name: /Jun 1 - Jun 7, 2026/ }));
 
@@ -109,17 +141,8 @@ describe('History view', () => {
     expect(screen.getByText('All schedules')).toBeInTheDocument();
   });
 
-  it('filters the list by role and status', () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      employees,
-      schedules: [serverRecord, managerRecord],
-    }));
-
-    render(
-      <AppStateProvider>
-        <History />
-      </AppStateProvider>,
-    );
+  it('filters the list by role and status', async () => {
+    await renderHistoryWithTwoSavedWeeks();
 
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Manager' } });
     expect(screen.getAllByRole('listitem')).toHaveLength(1);

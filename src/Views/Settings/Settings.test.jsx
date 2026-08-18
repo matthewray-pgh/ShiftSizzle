@@ -1,12 +1,30 @@
 import { fireEvent, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderView } from '../../test/renderView';
 import { Settings } from './Settings';
 
+vi.mock('../../lib/supabaseClient', async () => {
+  const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
+  return { supabase: createFakeSupabaseClient() };
+});
+
+const { supabase } = await import('../../lib/supabaseClient');
+
+const resetFakeSupabase = () => {
+  Object.values(supabase.__tables).forEach((rows) => {
+    rows.length = 0;
+  });
+  supabase.__setSession(null);
+};
+
+beforeEach(() => {
+  resetFakeSupabase();
+});
+
 describe('Settings view', () => {
-  it('renders the settings page', () => {
-    renderView(Settings);
+  it('renders the settings page', async () => {
+    await renderView(Settings);
 
     expect(screen.getByText('Manage business defaults and scheduling rules')).toBeInTheDocument();
     expect(screen.getByText('Workspace settings')).toBeInTheDocument();
@@ -21,8 +39,8 @@ describe('Settings view', () => {
     expect(screen.getByRole('button', { name: 'Discard changes' })).toBeDisabled();
   });
 
-  it('saves every dirty section in one action and shows a single confirmation', () => {
-    renderView(Settings);
+  it('saves every dirty section in one action and shows a single confirmation', async () => {
+    await renderView(Settings);
 
     fireEvent.change(screen.getByLabelText('Location Name'), { target: { value: 'Uptown Diner' } });
     fireEvent.change(screen.getByLabelText('Week Starts On'), { target: { value: 'Monday' } });
@@ -38,8 +56,8 @@ describe('Settings view', () => {
     expect(screen.getByLabelText('Week Starts On')).toHaveValue('Monday');
   });
 
-  it('discards unsaved edits across all sections', () => {
-    renderView(Settings);
+  it('discards unsaved edits across all sections', async () => {
+    await renderView(Settings);
 
     fireEvent.change(screen.getByLabelText('Location Name'), { target: { value: 'Uptown Diner' } });
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));

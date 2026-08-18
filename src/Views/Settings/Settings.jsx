@@ -24,12 +24,10 @@ export const Settings = () => {
     setNewTeamRole('');
   }, [state.settings]);
 
-  const activeEmployees = state.employees.filter((employee) => employee.status !== 'archived');
   const workspaceDirty = [
+    'businessName',
     'locationName',
-    'currentUserName',
     'schedulerName',
-    'currentUserEmployeeId',
   ].some((field) => form[field] !== state.settings[field]);
   const shiftsDirty = JSON.stringify(form.shiftTypes) !== JSON.stringify(state.settings.shiftTypes);
   const rolesDirty = JSON.stringify(form.additionalTeamRoles) !== JSON.stringify(state.settings.additionalTeamRoles);
@@ -124,26 +122,11 @@ export const Settings = () => {
                   <h3>Workspace Details</h3>
                   {workspaceDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
                 </div>
-              <p>Update the saved location and manager defaults used across the workspace.</p>
+              <p>Update the business name, location, and manager defaults used across the workspace.</p>
             </div>
+            <InputField label="Organization Name" name="businessName" value={form.businessName} onChange={(value) => updateForm('businessName', value)} />
             <InputField label="Location Name" name="locationName" value={form.locationName} onChange={(value) => updateForm('locationName', value)} />
-            <InputField label="Current User" name="currentUserName" value={form.currentUserName} onChange={(value) => updateForm('currentUserName', value)} />
             <InputField label="Scheduler Name" name="schedulerName" value={form.schedulerName} onChange={(value) => updateForm('schedulerName', value)} />
-            <label className="settings__field-label" htmlFor="current-user-employee">This is me</label>
-            <select
-              id="current-user-employee"
-              className="settings__select"
-              value={form.currentUserEmployeeId ?? ''}
-              onChange={(event) => updateForm('currentUserEmployeeId', event.target.value)}
-            >
-              <option value="">Not set</option>
-              {activeEmployees.map((employee) => (
-                <option key={employee.id} value={employee.id}>{employee.name} — {employee.roles.join(', ')}</option>
-              ))}
-            </select>
-            <p className="settings__field-hint">
-              Stands in for real sign-in for now. Used to show your personal schedule on the Dashboard.
-            </p>
           </div>
 
           <div className="settings__group" aria-label="Shift type settings">
