@@ -14,7 +14,7 @@ const ROLE_LABELS = {
 
 export const Layout = ({ children }) => {
   const location = useLocation();
-  const { user, membership, signOut } = useAuth();
+  const { user, membership } = useAuth();
   const workspaceLabel = ROLE_LABELS[membership?.accountRole] ?? "Workspace";
 
   const pageTitles = {
@@ -23,9 +23,13 @@ export const Layout = ({ children }) => {
     "/schedule/build": "Builder",
     "/team": "Team",
     "/settings": "Settings",
+    "/account": "My Account",
   };
 
   const currentPage = pageTitles[location.pathname] ?? "Dashboard";
+  const accountName = [user?.user_metadata?.first_name, user?.user_metadata?.last_name]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="layout">
@@ -44,13 +48,10 @@ export const Layout = ({ children }) => {
           </div>
           <div className="layout__header-main-user">
             <span className="layout__header-main-user-label">{workspaceLabel}</span>
-            <div className="layout__header-main-user-pill">
+            <NavLink className="layout__header-main-user-pill" to="/account" aria-label="My account">
               <i className="fas fa-user-circle" aria-hidden="true"></i>
-              <span>{user?.email}</span>
-            </div>
-            <button type="button" className="layout__header-main-user-signout" onClick={signOut} aria-label="Sign out">
-              <i className="fas fa-arrow-right-from-bracket" aria-hidden="true"></i>
-            </button>
+              <span>{accountName || user?.email}</span>
+            </NavLink>
           </div>
         </div>
       </header>
@@ -65,13 +66,22 @@ export const Layout = ({ children }) => {
         </section>
       </main>
       <footer className="layout__footer">
-        <Navigation testId="footer-mobile-nav" canManage={membership?.accountRole !== "staff"} />
+        {/* The header's account pill is hidden below the 700px breakpoint
+            (layout__header-main), so the mobile footer nav is the only way
+            to reach the Account page on a phone — add it here, unlike the
+            desktop sidebar where the header already covers it. Sign Out
+            itself lives on the Account page, not in either nav. */}
+        <Navigation
+          testId="footer-mobile-nav"
+          canManage={membership?.accountRole !== "staff"}
+          showAccountLink
+        />
       </footer>
     </div>
   );
 };
 
-const Navigation = ({ testId, canManage }) => {
+const Navigation = ({ testId, canManage, showAccountLink = false }) => {
   const getLinkClass = ({ isActive }) => (isActive ? "layout__nav--link active" : "layout__nav--link");
 
   return (
@@ -92,6 +102,12 @@ const Navigation = ({ testId, canManage }) => {
         <NavLink className={getLinkClass} to="/settings">
           <i className="fas fa-cog" aria-hidden="true"></i>
           <span>Settings</span>
+        </NavLink>
+      )}
+      {showAccountLink && (
+        <NavLink className={getLinkClass} to="/account">
+          <i className="fas fa-user-circle" aria-hidden="true"></i>
+          <span>Account</span>
         </NavLink>
       )}
     </nav>

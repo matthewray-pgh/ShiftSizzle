@@ -31,13 +31,15 @@ export const BASE_TEAM_ROLES = Object.freeze({
 const DEFAULT_SHIFTS_PER_WEEK = 5;
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const YEAR_FORMATTER = new Intl.DateTimeFormat("en-US", { year: "numeric" });
+// Blank until the owner configures them in Settings — a new org shouldn't
+// silently inherit guessed hours it never confirmed.
 const DEFAULT_OPERATING_HOURS = Object.fromEntries(
   DAYS.map((day) => [
     day,
     {
-      isOpen: true,
-      openTime: day === "Friday" || day === "Saturday" ? "10:00" : "11:00",
-      closeTime: day === "Friday" || day === "Saturday" ? "23:00" : "21:00",
+      isOpen: false,
+      openTime: "",
+      closeTime: "",
     },
   ])
 );

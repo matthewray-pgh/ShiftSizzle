@@ -87,17 +87,16 @@ describe('Dashboard view', () => {
     expect(screen.getByText('Active employees')).toBeInTheDocument();
     expect(screen.getByText('Business Hours')).toBeInTheDocument();
 
-    // Every day gets its own row now instead of being combined into ranges
-    // like "Sun-Thu" — Sunday through Thursday share the same hours, Friday
-    // and Saturday share a later closing time.
+    // A fresh org has no configured hours yet (operating_hours seeds as
+    // `{}`) — every day should read "Closed" until the owner sets hours in
+    // Settings, not a guessed default schedule.
     const hoursList = screen.getByText('Business Hours').closest('.dashboard__panel--hours');
 
     expect(within(hoursList).getByText('Sun')).toBeInTheDocument();
     expect(within(hoursList).getByText('Thu')).toBeInTheDocument();
-    expect(within(hoursList).getAllByText('11:00 AM - 9:00 PM')).toHaveLength(5);
     expect(within(hoursList).getByText('Fri')).toBeInTheDocument();
     expect(within(hoursList).getByText('Sat')).toBeInTheDocument();
-    expect(within(hoursList).getAllByText('10:00 AM - 11:00 PM')).toHaveLength(2);
+    expect(within(hoursList).getAllByText('Closed')).toHaveLength(7);
   });
 
   // Regression test for backlog #1: Assigned/Open shifts used to go stale

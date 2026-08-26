@@ -2,7 +2,7 @@ import { Layout } from "./Components/Layout";
 import { ProtectedRoute } from "./Components/ProtectedRoute";
 import { Routes, Route } from "react-router-dom";
 
-import { Dashboard, Scheduler, History, Settings, Team } from "./Views";
+import { Dashboard, Scheduler, History, Settings, Team, Account } from "./Views";
 import { SignIn, SignUp, AcceptInvite } from "./Views/Auth";
 
 export default function App() {
@@ -28,6 +28,7 @@ export default function App() {
                   }
                 />
                 <Route path="/team" element={<Team />} />
+                <Route path="/account" element={<Account />} />
                 <Route
                   path="/settings"
                   element={

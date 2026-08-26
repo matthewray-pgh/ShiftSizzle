@@ -81,6 +81,34 @@ const splitRoles = (rolesCell = '') => rolesCell
   .map((token) => token.trim())
   .filter(Boolean);
 
+// Shared with the "Add via Scan" flow so a scanned role guess and a CSV
+// role cell match against the team's configured roles the same way.
+export const buildRoleLookup = (teamRoles = []) => new Map(teamRoles.map((role) => [role.toLowerCase(), role]));
+
+export const matchRoleName = (roleLookup, roleGuess) => {
+  if (!roleGuess) {
+    return null;
+  }
+
+  return roleLookup.get(roleGuess.trim().toLowerCase()) ?? null;
+};
+
+// Shared with the "Add via Scan" flow so a scanned candidate and a CSV row
+// dedupe against the existing roster the same way: email first, name as
+// fallback.
+export const buildEmployeeMatchIndex = (existingEmployees = []) => ({
+  byEmail: new Map(existingEmployees.filter((employee) => employee.email).map((employee) => [employee.email.toLowerCase(), employee])),
+  byName: new Map(existingEmployees.map((employee) => [employee.name.toLowerCase(), employee])),
+});
+
+export const findExistingEmployeeMatch = (matchIndex, { name, email } = {}) => {
+  if (email) {
+    return matchIndex.byEmail.get(email.toLowerCase()) ?? matchIndex.byName.get((name ?? '').toLowerCase());
+  }
+
+  return matchIndex.byName.get((name ?? '').toLowerCase());
+};
+
 export const serializeRosterCsv = (employees) => {
   const headerRow = IMPORTABLE_HEADERS.join(',');
   const dataRows = employees.map((employee) => (
@@ -131,7 +159,7 @@ export const parseRosterCsv = (text, validRoles) => {
     };
   }
 
-  const roleLookup = new Map(validRoles.map((role) => [role.toLowerCase(), role]));
+  const roleLookup = buildRoleLookup(validRoles);
   const rows = dataRows
     .filter((row) => row.some((value) => value.trim()))
     .map((row, rowIndex) => {
@@ -152,7 +180,7 @@ export const parseRosterCsv = (text, validRoles) => {
         errors.push('At least one role is required.');
       }
 
-      const matchedRoles = rolesInput.map((role) => roleLookup.get(role.toLowerCase())).filter(Boolean);
+      const matchedRoles = rolesInput.map((role) => matchRoleName(roleLookup, role)).filter(Boolean);
 
       if (rolesInput.length && matchedRoles.length !== rolesInput.length) {
         errors.push('Every role must match one of the supported team roles.');
@@ -212,12 +240,7 @@ export const parseRosterCsv = (text, validRoles) => {
 };
 
 export const buildRosterImportPreview = (rows, existingEmployees, mode) => {
-  const existingByEmail = new Map(
-    existingEmployees
-      .filter((employee) => employee.email)
-      .map((employee) => [employee.email.toLowerCase(), employee]),
-  );
-  const existingByName = new Map(existingEmployees.map((employee) => [employee.name.toLowerCase(), employee]));
+  const matchIndex = buildEmployeeMatchIndex(existingEmployees);
 
   const previewRows = rows.map((row) => {
     if (row.errors.length) {
@@ -228,9 +251,7 @@ export const buildRosterImportPreview = (rows, existingEmployees, mode) => {
       };
     }
 
-    const matchedEmployee = row.values.email
-      ? existingByEmail.get(row.values.email.toLowerCase()) ?? existingByName.get(row.values.name.toLowerCase())
-      : existingByName.get(row.values.name.toLowerCase());
+    const matchedEmployee = findExistingEmployeeMatch(matchIndex, row.values);
 
     if (matchedEmployee) {
       if (mode === 'add') {

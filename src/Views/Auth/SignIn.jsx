@@ -39,6 +39,19 @@ export const SignIn = () => {
     navigate(location.state?.from?.pathname ?? '/', { replace: true });
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+
+    if (oauthError) {
+      setError(oauthError.message);
+    }
+  };
+
   return (
     <div className="auth-page">
       <div className="auth-page__card">
@@ -55,6 +68,13 @@ export const SignIn = () => {
             {submitting ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+        <div className="auth-page__divider">
+          <span>or</span>
+        </div>
+        <Button type="button" className="button-outline auth-page__google" onClick={handleGoogleSignIn}>
+          <i className="fab fa-google" aria-hidden="true"></i>
+          Sign in with Google
+        </Button>
         <p className="auth-page__footer-link">
           New here? <Link to="/sign-up">Create a workspace</Link>
         </p>
