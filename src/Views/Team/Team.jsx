@@ -5,8 +5,12 @@ import { DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppS
 import { useAuth } from '../../state/AuthState';
 import { supabase } from '../../lib/supabaseClient';
 import {
+  buildEmployeeMatchIndex,
+  buildRoleLookup,
   buildRosterImportPreview,
   createBlankRosterTemplateCsv,
+  findExistingEmployeeMatch,
+  matchRoleName,
   parseRosterCsv,
   serializeRosterCsv,
 } from './rosterImportExport';
@@ -125,6 +129,14 @@ const getAvailabilityDayFlags = (availability = {}) => DAYS.map((day) => ({
 
 const createEmptyInviteForm = () => ({ email: '', accountRole: 'staff', employeeId: '' });
 
+const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+
+  reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+  reader.onerror = () => reject(reader.error ?? new Error('Could not read the selected file.'));
+  reader.readAsDataURL(file);
+});
+
 export const Team = () => {
   const { state, dispatch } = useAppState();
   const { employees, settings } = state;
@@ -178,6 +190,81 @@ export const Team = () => {
 
     setInviteSuccess(`Invite sent to ${inviteForm.email.trim()}.`);
     setInviteForm(createEmptyInviteForm());
+  };
+
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanSubmitting, setScanSubmitting] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [scanDuplicateWarning, setScanDuplicateWarning] = useState('');
+  const scanCameraInputRef = useRef(null);
+  const scanUploadInputRef = useRef(null);
+
+  const openScanModal = () => {
+    setScanError('');
+    setScanSubmitting(false);
+    setShowScanModal(true);
+  };
+
+  const closeScanModal = () => {
+    setShowScanModal(false);
+    setScanError('');
+    setScanSubmitting(false);
+
+    if (scanCameraInputRef.current) {
+      scanCameraInputRef.current.value = '';
+    }
+
+    if (scanUploadInputRef.current) {
+      scanUploadInputRef.current.value = '';
+    }
+  };
+
+  const handleScanFileSelected = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setScanError('');
+    setScanSubmitting(true);
+
+    try {
+      const image = await readFileAsBase64(file);
+      const { data, error } = await supabase.functions.invoke('scan-employee', {
+        body: { image, mediaType: file.type },
+      });
+
+      if (error || data?.error) {
+        setScanError(data?.error ?? error.message);
+        setScanSubmitting(false);
+        return;
+      }
+
+      const extracted = data.extracted ?? {};
+      const roleLookup = buildRoleLookup(teamRoles);
+      const matchedRole = matchRoleName(roleLookup, extracted.role_guess);
+      const matchIndex = buildEmployeeMatchIndex(employees);
+      const existingMatch = findExistingEmployeeMatch(matchIndex, extracted);
+
+      resetFormState({
+        id: null,
+        name: extracted.name ?? '',
+        title: extracted.title ?? '',
+        roles: matchedRole ? [matchedRole] : [],
+        contact: extracted.contact ?? '',
+        email: extracted.email ?? '',
+        shiftsPerWeek: 5,
+        availability: createDefaultAvailability(shiftTypes),
+      });
+      setActiveModalTab(MODAL_TABS.DETAILS);
+      setScanDuplicateWarning(existingMatch ? `This looks like an existing employee: ${existingMatch.name}.` : '');
+      setShowModal(true);
+      closeScanModal();
+    } catch (scanCatchError) {
+      setScanError(scanCatchError.message ?? 'Scan failed.');
+      setScanSubmitting(false);
+    }
   };
 
   const [form, setForm] = useState(createEmptyForm(teamRoles, shiftTypes));
@@ -369,6 +456,7 @@ export const Team = () => {
   const openCreateModal = () => {
     resetFormState();
     setActiveModalTab(MODAL_TABS.DETAILS);
+    setScanDuplicateWarning('');
     setShowModal(true);
   };
 
@@ -385,6 +473,7 @@ export const Team = () => {
     };
     resetFormState(nextForm);
     setActiveModalTab(MODAL_TABS.DETAILS);
+    setScanDuplicateWarning('');
     setShowModal(true);
   };
 
@@ -435,6 +524,7 @@ export const Team = () => {
   const closeModal = () => {
     setShowModal(false);
     setActiveModalTab(MODAL_TABS.DETAILS);
+    setScanDuplicateWarning('');
     resetFormState();
   };
 
@@ -629,6 +719,18 @@ export const Team = () => {
                     <i className="fas fa-plus" />
                   </span>
                   Add Employee
+                </Button>
+              )}
+              {canManageTeam && (
+                <Button
+                  type="button"
+                  onClick={openScanModal}
+                  className="team__toolbar-action team__toolbar-action--secondary"
+                >
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-camera" />
+                  </span>
+                  Add via Scan
                 </Button>
               )}
             </div>
@@ -982,6 +1084,9 @@ export const Team = () => {
                     aria-labelledby="team-modal-tab-details"
                     className="team__modal-panel"
                   >
+                    {scanDuplicateWarning && (
+                      <p className="team__field-error team__field-error--spaced" role="alert">{scanDuplicateWarning}</p>
+                    )}
                     <InputField
                       label="Name"
                       name="name"
@@ -1140,6 +1245,68 @@ export const Team = () => {
             </form>
           </div>
           <div className="team__modal-backdrop" onClick={closeModal}></div>
+        </div>
+      )}
+
+      {showScanModal && (
+        <div className="team__modal-overlay">
+          <div className="team__modal">
+            <div className="team__modal-header">
+              <div>
+                <h2>Add via Scan</h2>
+                <p className="team__modal-subtitle">Take a photo or upload an image of a paper application, and we&apos;ll pre-fill the Add Employee form for you to review.</p>
+              </div>
+            </div>
+            <div className="team__modal-body">
+              {scanError && <p className="team__field-error" role="alert">{scanError}</p>}
+              {scanSubmitting ? (
+                <p className="settings__field-hint">Reading document…</p>
+              ) : (
+                <div className="team__scan-options">
+                  <Button type="button" className="team__toolbar-action" onClick={() => scanCameraInputRef.current?.click()}>
+                    <span className="team__action-icon" aria-hidden="true">
+                      <i className="fas fa-camera" />
+                    </span>
+                    Take Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    className="team__toolbar-action team__toolbar-action--secondary"
+                    onClick={() => scanUploadInputRef.current?.click()}
+                  >
+                    <span className="team__action-icon" aria-hidden="true">
+                      <i className="fas fa-upload" />
+                    </span>
+                    Upload Image
+                  </Button>
+                  <input
+                    ref={scanCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleScanFileSelected}
+                    hidden
+                  />
+                  <input
+                    ref={scanUploadInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleScanFileSelected}
+                    hidden
+                  />
+                </div>
+              )}
+            </div>
+            <div className="team__modal-actions">
+              <Button type="button" className="team__modal-secondary-action" onClick={closeScanModal}>
+                <span className="team__action-icon" aria-hidden="true">
+                  <i className="fas fa-xmark" />
+                </span>
+                Cancel
+              </Button>
+            </div>
+          </div>
+          <div className="team__modal-backdrop" onClick={closeScanModal}></div>
         </div>
       )}
 

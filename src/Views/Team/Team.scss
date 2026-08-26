@@ -966,6 +966,12 @@
     border-top: 1px solid rgba(15, 23, 42, 0.08);
   }
 
+  &__scan-options {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
   &__modal-primary-action {
     padding: 12px 18px;
     background: linear-gradient(135deg, #2563eb, #1d4ed8);
