@@ -15,18 +15,16 @@
 .dashboard {
   > .content-panel {
     animation: dashboard-rise-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 90ms;
+  }
 
-    &:nth-of-type(2) {
-      animation-delay: 90ms;
-    }
+  &__top {
+    margin: 10px 20px;
+    padding: 18px 22px;
+    animation: dashboard-rise-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   &__hero {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    align-items: flex-start;
-
     h1 {
       margin: 0;
       font-size: 2rem;
@@ -294,9 +292,12 @@
 
 @media (max-width: 700px) {
   .dashboard {
-    &__hero {
-      flex-direction: column;
+    &__top {
+      margin: 10px 0;
+      padding: 16px;
+    }
 
+    &__hero {
       h1 {
         font-size: 1.5rem;
       }

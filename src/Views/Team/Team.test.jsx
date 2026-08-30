@@ -126,7 +126,7 @@ describe('Team view', () => {
 
     fireEvent.click(screen.getByText('Add Employee'));
 
-    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('Name')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: /Availability/ }));
@@ -194,15 +194,33 @@ describe('Team view', () => {
   it('shows a first-run empty state before any employees have been added', async () => {
     await renderView(Team, { employees: [] });
 
-    expect(screen.getByText('Add your first employee to build the team roster.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add first employee' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import roster' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download blank template' })).toBeInTheDocument();
+    expect(screen.getByText('Add your first employee')).toBeInTheDocument();
+    // The blank-template download lives in the Import CSV modal instead —
+    // no need to duplicate it here.
+    expect(screen.queryByRole('button', { name: 'Download blank template' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Search employees')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Filter by status' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Team view mode' })).not.toBeInTheDocument();
     expect(screen.queryByText('No team members match these filters.')).not.toBeInTheDocument();
+    // "Invite team member" only makes sense once there's a team to invite
+    // someone into — hidden on the pre-roster empty state.
+    expect(screen.queryByRole('button', { name: 'Invite team member' })).not.toBeInTheDocument();
+
+    // Each add-employee method is a direct one-click button, not tucked
+    // behind a menu — minimizes clicks over a cleaner-looking but slower
+    // dropdown.
+    expect(screen.getByRole('button', { name: 'Add Employee' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Scan a document' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import a CSV' })).toBeInTheDocument();
+  });
+
+  it('opens the Add Employee modal directly from the empty state, in one click', async () => {
+    await renderView(Team, { employees: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Employee' }));
+
+    expect(screen.getByRole('heading', { name: 'Add New Employee' })).toBeInTheDocument();
   });
 
   it('filters as you type without needing to submit', async () => {
@@ -312,48 +330,6 @@ describe('Team view', () => {
 
     window.innerWidth = 1024;
     window.dispatchEvent(new Event('resize'));
-  });
-
-  it('downloads a blank roster template csv from the onboarding empty state', async () => {
-    const createObjectUrlSpy = vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:template');
-    const revokeObjectUrlSpy = vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
-    const originalCreateElement = document.createElement.bind(document);
-    const createElementSpy = vi.spyOn(document, 'createElement');
-    const clickSpy = vi.fn();
-
-    createElementSpy.mockImplementation((tagName) => {
-      if (tagName === 'a') {
-        return {
-          click: clickSpy,
-          set href(value) {
-            this._href = value;
-          },
-          get href() {
-            return this._href;
-          },
-          set download(value) {
-            this._download = value;
-          },
-          get download() {
-            return this._download;
-          },
-        };
-      }
-
-        return originalCreateElement(tagName);
-    });
-
-    await renderView(Team, { employees: [] });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Download blank template' }));
-
-    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:template');
-
-    createElementSpy.mockRestore();
-    createObjectUrlSpy.mockRestore();
-    revokeObjectUrlSpy.mockRestore();
   });
 
   it('downloads the blank template from inside the import modal', async () => {

@@ -35,21 +35,19 @@ body {
 .layout {
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 84px 1fr;
+  grid-template-rows: 64px 1fr;
 
   &__header {
     display: grid;
     grid-template-columns: 248px minmax(0, 1fr);
     align-items: stretch;
-    background: styles.$primary-color;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    background: transparent;
   }
 
   &__brand {
     display: flex;
+    background: styles.$primary-color;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
-    
   }
 
   &__brand-link {
@@ -57,9 +55,6 @@ body {
     align-items: center;
     max-width: 100%;
     padding-left: 20px;
-    
-    background: rgba(255, 255, 255, 1);
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
     text-decoration: none;
   }
 
@@ -80,7 +75,7 @@ body {
 
   &__header-main-current-page {
     min-width: 0;
-    color: #fff7f2;
+    color: styles.$text;
     font-size: 1.2rem;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -94,7 +89,7 @@ body {
   }
 
   &__header-main-user-label {
-    color: rgba(248, 250, 252, 0.7);
+    color: styles.$text-secondary;
     font-size: 0.82rem;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -106,24 +101,49 @@ body {
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(15, 23, 42, 0.1);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
+    background: rgba(15, 23, 42, 0.04);
+    color: styles.$text;
     text-decoration: none;
     font-size: 0.95rem;
     font-weight: 600;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     transition: background 160ms ease, border-color 160ms ease;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(15, 23, 42, 0.08);
+      border-color: rgba(15, 23, 42, 0.16);
     }
 
     i {
       color: styles.$primary;
       font-size: 1rem;
+    }
+  }
+
+  &__header-mobile-actions {
+    display: none;
+    align-items: center;
+    gap: 10px;
+  }
+
+  &__header-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    color: #fff7f2;
+    font-size: 1.5rem;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 160ms ease;
+
+    &:hover,
+    &:focus-visible {
+      color: styles.$primary;
     }
   }
 
@@ -136,7 +156,7 @@ body {
 
   &__main--content {
     min-width: 0;
-    padding: 22px 24px 28px;
+    padding: 12px 24px 28px;
   }
 
   &__sidebar-nav {
@@ -198,8 +218,6 @@ body {
 
       &.active {
         color: #fff;
-        background: linear-gradient(90deg, rgba(255, 107, 53, 0.22) 0%, rgba(255, 107, 53, 0.08) 100%);
-        box-shadow: inset 0 0 0 1px rgba(255, 107, 53, 0.14);
 
         &::before {
           background: styles.$primary;
@@ -229,26 +247,13 @@ body {
     .layout__nav {
       height: 100%;
       padding: 0 4px;
-      // Auto-fit rather than a hardcoded column count — the item count
-      // varies (3 for staff vs. 4 for owner/manager before Account + Sign
-      // Out were added here; now 5 or 6), so every column stays equal-width
-      // and full-bleed instead of a fixed 4-up grid leaving a blank slot.
+      // Auto-fit rather than a hardcoded column count — item count varies
+      // (3 for staff, 4 for owner/manager with Settings) — so every column
+      // stays equal-width and full-bleed instead of a fixed grid leaving a
+      // blank slot.
       grid-auto-flow: column;
       grid-auto-columns: minmax(0, 1fr);
       align-items: stretch;
-
-      // 5+ items (staff: Dashboard/Schedule/Team/Account/Sign Out, or 6 with
-      // Settings for owner/manager) need to shrink to fit a phone-width bar
-      // without wrapping labels to a second line.
-      &:has(> :nth-child(5)) .layout__nav--link {
-        gap: 3px;
-        padding: 8px 2px 5px;
-        font-size: 0.62rem;
-
-        i {
-          font-size: 0.9rem;
-        }
-      }
     }
   }
 }
@@ -266,26 +271,46 @@ body {
     grid-template-rows: 56px 1fr;
 
     &__header {
-      grid-template-columns: 1fr;
+      grid-template-columns: auto 1fr;
+      align-items: center;
       height: auto;
+      min-height: 56px;
+      background: styles.$primary-color;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
     }
 
     &__brand {
-      justify-content: center;
+      justify-content: flex-start;
+      border-right: none;
     }
 
     &__brand-link {
-      width: 100%;
-      padding: 0;
-      justify-content: center;
+      width: auto;
+      margin: 0;
+      padding: 0 0 0 14px;
+      justify-content: flex-start;
     }
 
     &__brand-logo {
-      width: min(62%, 190px);
+      width: 128px;
     }
 
     &__header-main {
+      display: flex;
+      padding: 0 14px 0 6px;
+    }
+
+    &__header-main-current-page {
       display: none;
+    }
+
+    &__header-main-user {
+      display: none;
+    }
+
+    &__header-mobile-actions {
+      display: flex;
+      margin-left: auto;
     }
 
     &__main {
@@ -309,18 +334,18 @@ body {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 6px;
-        min-height: 52px;
-        padding: 9px 4px 6px;
+        gap: 4px;
+        min-height: 56px;
+        padding: 8px 4px 6px;
         height: 100%;
         border-radius: 0;
         border-top: 3px solid transparent;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         font-weight: 700;
         color: rgba(248, 250, 252, 0.7);
 
         i {
-          font-size: 1rem;
+          font-size: 1.65rem;
           margin-bottom: 0;
         }
 
@@ -334,7 +359,6 @@ body {
 
         &.active {
           border-top-color: styles.$primary;
-          background: linear-gradient(180deg, rgba(255, 107, 53, 0.3) 0%, rgba(255, 107, 53, 0.1) 100%);
           color: #fff;
 
           i {

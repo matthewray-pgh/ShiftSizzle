@@ -1,8 +1,8 @@
 import { NavLink, useLocation } from "react-router-dom";
 
+import { useAppState } from "../state/AppState";
 import { useAuth } from "../state/AuthState";
-import logo from "../Assets/ShiftSizzle.Logo.png";
-import logoCompact from "../Assets/ShiftSizzle.Logo.Compact.png";
+import logo from "../Assets/ShiftSizzle.Logo.OnDark.png";
 
 import "./Layout.scss";
 
@@ -15,6 +15,7 @@ const ROLE_LABELS = {
 export const Layout = ({ children }) => {
   const location = useLocation();
   const { user, membership } = useAuth();
+  const { state } = useAppState();
   const workspaceLabel = ROLE_LABELS[membership?.accountRole] ?? "Workspace";
 
   const pageTitles = {
@@ -23,23 +24,23 @@ export const Layout = ({ children }) => {
     "/schedule/build": "Builder",
     "/team": "Team",
     "/settings": "Settings",
-    "/account": "My Account",
+    "/account": "Account",
   };
 
   const currentPage = pageTitles[location.pathname] ?? "Dashboard";
-  const accountName = [user?.user_metadata?.first_name, user?.user_metadata?.last_name]
-    .filter(Boolean)
-    .join(" ");
+  // A linked employee's roster name is the source of truth (see Account.jsx)
+  // — prefer it over the auth profile's first/last name, which unlinked
+  // users still edit directly.
+  const linkedEmployee = state.employees.find((employee) => employee.id === membership?.employeeId);
+  const accountName = linkedEmployee?.name
+    || [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(" ");
 
   return (
     <div className="layout">
       <header className="layout__header">
         <div className="layout__brand">
           <NavLink className="layout__brand-link" to="/" aria-label="ShiftSizzle home">
-            <picture>
-              <source media="(max-width: 700px)" srcSet={logoCompact} />
-              <img className="layout__brand-logo" src={logo} alt="ShiftSizzle" />
-            </picture>
+            <img className="layout__brand-logo" src={logo} alt="ShiftSizzle" />
           </NavLink>
         </div>
         <div className="layout__header-main">
@@ -51,6 +52,14 @@ export const Layout = ({ children }) => {
             <NavLink className="layout__header-main-user-pill" to="/account" aria-label="My account">
               <i className="fas fa-user-circle" aria-hidden="true"></i>
               <span>{accountName || user?.email}</span>
+            </NavLink>
+          </div>
+          <div className="layout__header-mobile-actions">
+            <button type="button" className="layout__header-icon-button" aria-label="Notifications">
+              <i className="fas fa-bell" aria-hidden="true"></i>
+            </button>
+            <NavLink to="/account" className="layout__header-icon-button" aria-label="My account">
+              <i className="fas fa-user-circle" aria-hidden="true"></i>
             </NavLink>
           </div>
         </div>
@@ -67,21 +76,17 @@ export const Layout = ({ children }) => {
       </main>
       <footer className="layout__footer">
         {/* The header's account pill is hidden below the 700px breakpoint
-            (layout__header-main), so the mobile footer nav is the only way
-            to reach the Account page on a phone — add it here, unlike the
-            desktop sidebar where the header already covers it. Sign Out
-            itself lives on the Account page, not in either nav. */}
-        <Navigation
-          testId="footer-mobile-nav"
-          canManage={membership?.accountRole !== "staff"}
-          showAccountLink
-        />
+            (layout__header-main), so the mobile header's avatar button
+            (layout__header-mobile-actions) is the way to reach the Account
+            page on a phone instead. Sign Out itself lives on the Account
+            page, not in either nav. */}
+        <Navigation testId="footer-mobile-nav" canManage={membership?.accountRole !== "staff"} />
       </footer>
     </div>
   );
 };
 
-const Navigation = ({ testId, canManage, showAccountLink = false }) => {
+const Navigation = ({ testId, canManage }) => {
   const getLinkClass = ({ isActive }) => (isActive ? "layout__nav--link active" : "layout__nav--link");
 
   return (
@@ -102,12 +107,6 @@ const Navigation = ({ testId, canManage, showAccountLink = false }) => {
         <NavLink className={getLinkClass} to="/settings">
           <i className="fas fa-cog" aria-hidden="true"></i>
           <span>Settings</span>
-        </NavLink>
-      )}
-      {showAccountLink && (
-        <NavLink className={getLinkClass} to="/account">
-          <i className="fas fa-user-circle" aria-hidden="true"></i>
-          <span>Account</span>
         </NavLink>
       )}
     </nav>

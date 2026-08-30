@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { Button, ContentPanel, InputField, StatusBadge } from '../../Components';
 import { DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
@@ -31,7 +31,7 @@ const STATUS_FILTER_OPTIONS = [
 const WEEKDAY_DAYS = DAYS.slice(1, 6);
 
 const MODAL_TABS = Object.freeze({
-  DETAILS: 'details',
+  OVERVIEW: 'overview',
   AVAILABILITY: 'availability',
 });
 
@@ -39,6 +39,14 @@ const MOBILE_VIEW_BREAKPOINT = 900;
 const ROSTER_IMPORT_MODES = [
   { value: 'add', label: 'Add new only' },
   { value: 'upsert', label: 'Add and update matches' },
+];
+
+const AVATAR_TINTS = ['#ff6b35', '#3b82f6', '#22c55e', '#e85a24', '#0ea5e9'];
+
+const getInitials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('');
+
+const getAvatarTint = (seed = '') => AVATAR_TINTS[
+  [...seed].reduce((sum, char) => sum + char.charCodeAt(0), 0) % AVATAR_TINTS.length
 ];
 
 const createDefaultAvailability = (shiftTypes) => Object.fromEntries(DAYS.map((day) => [day, [...shiftTypes]]));
@@ -136,6 +144,39 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.onerror = () => reject(reader.error ?? new Error('Could not read the selected file.'));
   reader.readAsDataURL(file);
 });
+
+// Shared by every popover menu on this page (Roster data, Add employee) —
+// closes on a click outside the menu's own DOM node or on Escape.
+const useCloseMenuOnOutsideClick = (isOpen, menuRef, close) => {
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (!menuRef.current?.contains(event.target)) {
+        close();
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        close();
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `close` is
+    // always a fresh `() => setShowX(false)` closure over a stable setState;
+    // including it would resubscribe every render for no behavioral change.
+  }, [isOpen]);
+};
 
 export const Team = () => {
   const { state, dispatch } = useAppState();
@@ -257,7 +298,7 @@ export const Team = () => {
         shiftsPerWeek: 5,
         availability: createDefaultAvailability(shiftTypes),
       });
-      setActiveModalTab(MODAL_TABS.DETAILS);
+      setActiveModalTab(MODAL_TABS.OVERVIEW);
       setScanDuplicateWarning(existingMatch ? `This looks like an existing employee: ${existingMatch.name}.` : '');
       setShowModal(true);
       closeScanModal();
@@ -280,7 +321,7 @@ export const Team = () => {
   const [statusFilter, setStatusFilter] = useState('active');
   const [viewMode, setViewMode] = useState(VIEW_MODES.LIST);
   const [slideDir, setSlideDir] = useState('from-right');
-  const [activeModalTab, setActiveModalTab] = useState(MODAL_TABS.DETAILS);
+  const [activeModalTab, setActiveModalTab] = useState(MODAL_TABS.OVERVIEW);
   const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= MOBILE_VIEW_BREAKPOINT);
   const [importMode, setImportMode] = useState('add');
   const [importRows, setImportRows] = useState([]);
@@ -288,8 +329,19 @@ export const Team = () => {
   const [importFileError, setImportFileError] = useState('');
   const importFileInputRef = useRef(null);
   const rosterActionsMenuRef = useRef(null);
+  const importModeButtonRefs = useRef({});
+  const [importModeHighlightStyle, setImportModeHighlightStyle] = useState(null);
   const activeViewMode = isMobileView ? VIEW_MODES.CARD : viewMode;
   const importPreview = buildRosterImportPreview(importRows, employees, importMode);
+  const editingEmployee = form.id ? employees.find((employee) => employee.id === form.id) ?? null : null;
+
+  useLayoutEffect(() => {
+    const activeButton = importModeButtonRefs.current[importMode];
+    if (!activeButton) {
+      return;
+    }
+    setImportModeHighlightStyle({ left: activeButton.offsetLeft, width: activeButton.offsetWidth });
+  }, [importMode, showImportModal]);
 
   const switchView = (mode) => {
     if (mode === viewMode) {
@@ -327,31 +379,7 @@ export const Team = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (!showRosterActionsMenu) {
-      return undefined;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (!rosterActionsMenuRef.current?.contains(event.target)) {
-        setShowRosterActionsMenu(false);
-      }
-    };
-
-    const handleEscape = (event) => {
-      if (event.key === 'Escape') {
-        setShowRosterActionsMenu(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('keydown', handleEscape);
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [showRosterActionsMenu]);
+  useCloseMenuOnOutsideClick(showRosterActionsMenu, rosterActionsMenuRef, () => setShowRosterActionsMenu(false));
 
   const updateFormField = (field, value) => {
     setForm((currentForm) => {
@@ -455,7 +483,7 @@ export const Team = () => {
 
   const openCreateModal = () => {
     resetFormState();
-    setActiveModalTab(MODAL_TABS.DETAILS);
+    setActiveModalTab(MODAL_TABS.OVERVIEW);
     setScanDuplicateWarning('');
     setShowModal(true);
   };
@@ -472,7 +500,7 @@ export const Team = () => {
       availability: normalizeAvailability(employee.availability, shiftTypes),
     };
     resetFormState(nextForm);
-    setActiveModalTab(MODAL_TABS.DETAILS);
+    setActiveModalTab(MODAL_TABS.OVERVIEW);
     setScanDuplicateWarning('');
     setShowModal(true);
   };
@@ -523,7 +551,7 @@ export const Team = () => {
 
   const closeModal = () => {
     setShowModal(false);
-    setActiveModalTab(MODAL_TABS.DETAILS);
+    setActiveModalTab(MODAL_TABS.OVERVIEW);
     setScanDuplicateWarning('');
     resetFormState();
   };
@@ -634,6 +662,12 @@ export const Team = () => {
 
   const renderStatusBadge = (status) => <StatusBadge status={status} />;
 
+  const renderAvatar = (employee, className = 'team__avatar-initials') => (
+    <span className={className} style={{ background: getAvatarTint(employee.id) }} aria-hidden="true">
+      {getInitials(employee.name) || '?'}
+    </span>
+  );
+
   const renderAvailabilityStrip = (availability, idPrefix) => {
     const days = getAvailabilityDayFlags(availability);
     const availableDays = days.filter((d) => d.shifts.length > 0);
@@ -659,10 +693,9 @@ export const Team = () => {
 
   return (
     <div className="team">
-      <ContentPanel className="team__control-panel">
+      <div className="team__control-panel">
         <div className="team__control-header">
           <div className="team__control-copy">
-            <span className="team__control-eyebrow">Team workspace</span>
             <h2>Team roster</h2>
             <p>Search, filter, and manage your team below.</p>
           </div>
@@ -735,7 +768,7 @@ export const Team = () => {
               )}
             </div>
           )}
-          {canManageTeam && (
+          {canManageTeam && hasEmployees && (
             <div className="team__control-actions">
               <Button
                 type="button"
@@ -860,7 +893,7 @@ export const Team = () => {
            </div>
           </div>
         )}
-      </ContentPanel>
+      </div>
 
       <section
         key={activeViewMode}
@@ -868,33 +901,27 @@ export const Team = () => {
       >
         {showRosterEmptyState && (
           <ContentPanel className="team__empty-state team__empty-state--onboarding">
-            <div className="team__empty-state-visual" aria-hidden="true">
-              <i className="fas fa-users" />
-            </div>
             <span className="team__availability-summary-label">Start your roster</span>
-            <h3>Add your first employee to build the team roster.</h3>
-            <p>Create one employee manually, import a CSV roster, or download the template and fill it out offline before uploading.</p>
             {canManageTeam && (
               <div className="team__empty-state-actions">
                 <Button type="button" className="team__primary-action" onClick={openCreateModal}>
                   <span className="team__action-icon" aria-hidden="true">
                     <i className="fas fa-plus" />
                   </span>
-                  Add first employee
+                  Add Employee
                 </Button>
-                <Button type="button" className="team__toolbar-action" onClick={openImportModal}>
+                <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={openScanModal}>
+                  <span className="team__action-icon" aria-hidden="true">
+                    <i className="fas fa-camera" />
+                  </span>
+                  Scan a document
+                </Button>
+                <Button type="button" className="team__toolbar-action team__toolbar-action--secondary" onClick={openImportModal}>
                   <span className="team__action-icon" aria-hidden="true">
                     <i className="fas fa-file-import" />
                   </span>
-                  Import roster
+                  Import a CSV
                 </Button>
-                <button
-                  type="button"
-                  className="team__empty-state-link"
-                  onClick={downloadBlankRosterTemplate}
-                >
-                  Download blank template
-                </button>
               </div>
             )}
           </ContentPanel>
@@ -909,23 +936,12 @@ export const Team = () => {
           <ContentPanel key={emp.id} className="team__member-panel">
             <div className="team__member-info">
               <div className="team__member-avatar">
-                <span className="team__avatar-icon" aria-label="avatar">
-                  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="20" cy="20" r="20" fill="#e0e0e0" />
-                    <circle cx="20" cy="15" r="7" fill="#bdbdbd" />
-                    <ellipse cx="20" cy="29" rx="10" ry="7" fill="#bdbdbd" />
-                  </svg>
-                </span>
-                <span
-                  className={`team__member-status-dot team__member-status-dot--${emp.status}`}
-                  title={`Status: ${emp.status === 'archived' ? 'Archived' : 'Active'}`}
-                  role="img"
-                  aria-label={`Status: ${emp.status === 'archived' ? 'Archived' : 'Active'}`}
-                />
+                {renderAvatar(emp)}
               </div>
               <div className="team__member-details">
                 <div className="team__member-header">
                   <div className="team__member-name"><strong>{emp.name}</strong></div>
+                  {renderStatusBadge(emp.status)}
                   {canManageTeam && (
                     <button
                       type="button"
@@ -999,8 +1015,13 @@ export const Team = () => {
                 {visibleEmployees.map((employee) => (
                   <tr key={employee.id}>
                     <td>
-                      <strong>{employee.name}</strong>
-                      <div className="team__table-subtitle">{employee.title}</div>
+                      <div className="team__table-name">
+                        {renderAvatar(employee, 'team__avatar-initials team__avatar-initials--sm')}
+                        <div>
+                          <strong>{employee.name}</strong>
+                          <div className="team__table-subtitle">{employee.title}</div>
+                        </div>
+                      </div>
                     </td>
                     <td>{employee.roles.join(', ')}</td>
                     <td className="team__table-status">{renderStatusBadge(employee.status)}</td>
@@ -1044,22 +1065,33 @@ export const Team = () => {
       {showModal && (
         <div className="team__modal-overlay">
           <div className="team__modal">
-            <div className="team__modal-header">
-              <div>
-                <h2>{form.id ? 'Edit Employee' : 'Add New Employee'}</h2>
-                <p className="team__modal-subtitle">Update team details and weekly availability without leaving the roster.</p>
-              </div>
+            <div className={`team__modal-header ${editingEmployee ? 'team__modal-header--identity' : ''}`.trim()}>
+              {editingEmployee ? (
+                <div className="team__modal-identity">
+                  {renderAvatar(editingEmployee, 'team__avatar-initials team__avatar-initials--lg')}
+                  <div className="team__modal-identity-copy">
+                    <h2>{editingEmployee.name}</h2>
+                    {editingEmployee.title && <p className="team__modal-identity-title">{editingEmployee.title}</p>}
+                    {renderStatusBadge(editingEmployee.status)}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h2>Add New Employee</h2>
+                  <p className="team__modal-subtitle">Update team details and weekly availability without leaving the roster.</p>
+                </div>
+              )}
               <div className="team__modal-tabs" role="tablist" aria-label="Employee editor sections">
                 <button
                   id="team-modal-tab-details"
                   type="button"
                   role="tab"
-                  aria-selected={activeModalTab === MODAL_TABS.DETAILS}
+                  aria-selected={activeModalTab === MODAL_TABS.OVERVIEW}
                   aria-controls="team-modal-panel-details"
-                  className={`team__modal-tab ${activeModalTab === MODAL_TABS.DETAILS ? 'is-active' : ''}`.trim()}
-                  onClick={() => setActiveModalTab(MODAL_TABS.DETAILS)}
+                  className={`team__modal-tab ${activeModalTab === MODAL_TABS.OVERVIEW ? 'is-active' : ''}`.trim()}
+                  onClick={() => setActiveModalTab(MODAL_TABS.OVERVIEW)}
                 >
-                  Details
+                  Overview
                 </button>
                 <button
                   id="team-modal-tab-availability"
@@ -1077,7 +1109,7 @@ export const Team = () => {
             </div>
             <form onSubmit={handleAddEmployee} className="team__modal-form">
               <div className="team__modal-body">
-                {activeModalTab === MODAL_TABS.DETAILS && (
+                {activeModalTab === MODAL_TABS.OVERVIEW && (
                   <div
                     id="team-modal-panel-details"
                     role="tabpanel"
@@ -1119,20 +1151,26 @@ export const Team = () => {
                       </div>
                     </div>
                     {touched.roles && formErrors.roles && <p className="team__field-error">{formErrors.roles}</p>}
-                    <InputField
-                      label="Contact"
-                      name="contact"
-                      value={form.contact}
-                      onChange={(value) => updateFormField('contact', value)}
-                    />
-                    <InputField
-                      label="Email"
-                      name="email"
-                      value={form.email}
-                      onChange={(value) => updateFormField('email', value)}
-                      onBlur={() => handleFieldBlur('email')}
-                      aria-invalid={Boolean(touched.email && formErrors.email)}
-                    />
+                    <div className="team__field-icon-row">
+                      <i className="fas fa-phone team__field-icon" aria-hidden="true" />
+                      <InputField
+                        label="Contact"
+                        name="contact"
+                        value={form.contact}
+                        onChange={(value) => updateFormField('contact', value)}
+                      />
+                    </div>
+                    <div className="team__field-icon-row">
+                      <i className="fas fa-envelope team__field-icon" aria-hidden="true" />
+                      <InputField
+                        label="Email"
+                        name="email"
+                        value={form.email}
+                        onChange={(value) => updateFormField('email', value)}
+                        onBlur={() => handleFieldBlur('email')}
+                        aria-invalid={Boolean(touched.email && formErrors.email)}
+                      />
+                    </div>
                     {touched.email && formErrors.email && <p className="team__field-error">{formErrors.email}</p>}
                     <InputField
                       label="Shifts Per Week"
@@ -1339,22 +1377,28 @@ export const Team = () => {
                       accept=".csv,text/csv"
                       onChange={handleImportFileChange}
                     />
-                    <p className="team__import-helper">
-                      Columns: Name, Title, Roles, Contact, Email, Status. Separate multiple roles with a semicolon (e.g. &quot;Bartender;Server&quot;). Availability isn&apos;t imported yet — set it per employee afterward.
-                    </p>
                     {importFileName && <p className="team__import-file-name">Loaded {importFileName}</p>}
                   </div>
 
                   <div className="team__import-field">
                     <span className="team__filter-label">Import mode</span>
-                    <div className="team__import-mode" role="group" aria-label="Import mode">
+                    <div className="team__import-mode" role="tablist" aria-label="Import mode">
+                      {importModeHighlightStyle && (
+                        <span
+                          className="team__import-mode-highlight"
+                          style={importModeHighlightStyle}
+                          aria-hidden="true"
+                        />
+                      )}
                       {ROSTER_IMPORT_MODES.map(({ value, label }) => (
                         <button
                           key={value}
                           type="button"
+                          role="tab"
+                          aria-selected={importMode === value}
+                          ref={(node) => { importModeButtonRefs.current[value] = node; }}
                           className={`team__import-mode-button ${importMode === value ? 'is-active' : ''}`.trim()}
                           onClick={() => setImportMode(value)}
-                          aria-pressed={importMode === value}
                         >
                           {label}
                         </button>
@@ -1414,8 +1458,7 @@ export const Team = () => {
                   </div>
                 ) : (
                   <div className="team__import-empty-state">
-                    <h3>Choose a roster file to preview changes.</h3>
-                    <p>Need a starting point? Use the Download template link above.</p>
+                    <h3>Choose a file to preview.</h3>
                   </div>
                 )}
               </section>
