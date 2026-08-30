@@ -45,6 +45,43 @@ describe('ShiftSizzle application', () => {
     expect(screen.getAllByText('Schedule').length).toBeGreaterThan(0);
   });
 
+  it('shows the linked employee\'s roster name in the header, not the raw login email', async () => {
+    seedFakeSupabase(supabase, { employees: DEFAULT_TEST_EMPLOYEES, employeeId: '1' });
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AppStateProvider>
+            <App />
+          </AppStateProvider>
+        </MemoryRouter>
+      </AuthProvider>
+    );
+
+    await screen.findByText('Hello, Jen Ray');
+    // Both the desktop header pill and the mobile header's icon-only
+    // avatar button share the "My account" label — scope to the named
+    // desktop pill, the only one with visible text content.
+    expect(screen.getByLabelText('My account', { selector: '.layout__header-main-user-pill' })).toHaveTextContent('Jen Ray');
+  });
+
+  it('falls back to the login email in the header when not linked to a roster employee', async () => {
+    seedFakeSupabase(supabase, { employees: DEFAULT_TEST_EMPLOYEES, employeeId: null });
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <AppStateProvider>
+            <App />
+          </AppStateProvider>
+        </MemoryRouter>
+      </AuthProvider>
+    );
+
+    await screen.findByText('Active employees');
+    expect(screen.getByLabelText('My account', { selector: '.layout__header-main-user-pill' })).toHaveTextContent('test-user@example.com');
+  });
+
   it('renders the team management view on the team route', async () => {
     seedFakeSupabase(supabase, { employees: DEFAULT_TEST_EMPLOYEES, employeeId: '1' });
 
@@ -58,7 +95,10 @@ describe('ShiftSizzle application', () => {
       </AuthProvider>
     );
 
-    expect(await screen.findByText('Add Employee')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Search employees')).toBeInTheDocument();
+    // Wait on the search box specifically, not the "Add Employee" text —
+    // that label now also appears (briefly, pre-hydration) on the
+    // empty-roster state's consolidated add-employee menu button.
+    expect(await screen.findByPlaceholderText('Search employees')).toBeInTheDocument();
+    expect(screen.getByText('Add Employee')).toBeInTheDocument();
   });
 });

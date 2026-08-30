@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 
-import { ContentPanel, StatusBadge } from '../../Components';
+import { ContentPanel } from '../../Components';
 import { DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getWeekView, useAppState } from '../../state/AppState';
 import { useAuth } from '../../state/AuthState';
 
@@ -165,18 +165,15 @@ export const Dashboard = () => {
 
   return (
     <div className="dashboard">
-      <ContentPanel>
+      <div className="dashboard__top">
         <div className="dashboard__hero">
-          <div>
-            <p className="dashboard__eyebrow">{settings.locationName}</p>
-            <h1>Hello, {me?.name ?? user?.email}</h1>
-            <p className="dashboard__summary">
-              {isManager
-                ? `${schedule.status === 'published' ? 'Published' : 'Draft'} schedule for ${schedule.weekLabel} covering every role.`
-                : `Here's what's on the schedule for ${schedule.weekLabel || 'this week'}.`}
-            </p>
-          </div>
-          {isManager && <StatusBadge status={schedule.status === 'published' ? 'published' : 'draft'} />}
+          <p className="dashboard__eyebrow">{settings.locationName}</p>
+          <h1>Hello, {me?.name ?? user?.email}</h1>
+          <p className="dashboard__summary">
+            {isManager
+              ? `${schedule.status === 'published' ? 'Published' : 'Draft'} schedule for ${schedule.weekLabel} covering every role.`
+              : `Here's what's on the schedule for ${schedule.weekLabel || 'this week'}.`}
+          </p>
         </div>
         {isManager && (
           <div className="dashboard__card-grid">
@@ -188,7 +185,7 @@ export const Dashboard = () => {
             ))}
           </div>
         )}
-      </ContentPanel>
+      </div>
 
       <ContentPanel>
         <div className="dashboard__section-heading">
