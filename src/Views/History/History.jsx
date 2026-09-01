@@ -227,7 +227,6 @@ export const History = () => {
             <span className="history__empty-state-icon" aria-hidden="true">
               <i className="fas fa-clock-rotate-left" />
             </span>
-            <span className="history__page-eyebrow">Schedule history</span>
             <h2>No schedules yet</h2>
             <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
             <button type="button" className="button" onClick={() => redirectToBuilder()}>
@@ -245,7 +244,6 @@ export const History = () => {
         <ContentPanel>
           <div className="history__page-header">
             <div className="history__page-copy">
-              <span className="history__page-eyebrow">Schedule history</span>
               <h2>All schedules</h2>
               <p className="history__subhead">Every schedule you've saved or published, newest first.</p>
             </div>
@@ -360,7 +358,6 @@ export const History = () => {
       <ContentPanel>
         <div className="history__page-header">
           <div className="history__page-copy">
-            <span className="history__page-eyebrow">Schedule history</span>
             <h2>{selectedEntry.weekLabel || 'Schedule'}</h2>
             <p className="history__subhead">{selectedEntry.role} coverage for {selectedEntry.weekLabel}.</p>
             <p className="history__publish-meta">{getEntryActivityLabel(selectedEntry)}</p>

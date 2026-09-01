@@ -26,11 +26,33 @@ export const Account = () => {
   const linkedEmployee = state.employees.find((employee) => employee.id === membership?.employeeId);
   const isLinked = Boolean(linkedEmployee);
 
+  const displayName = linkedEmployee?.name
+    || [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ')
+    || user?.email
+    || '';
+  const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '';
+  const roleLabel = linkedEmployee?.title
+    || (membership?.accountRole
+      ? membership.accountRole.charAt(0).toUpperCase() + membership.accountRole.slice(1)
+      : '');
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+
   const [form, setForm] = useState(() => (isLinked ? getLinkedProfile(linkedEmployee) : getUnlinkedProfile(user)));
   const [saved, setSaved] = useState(form);
   const [error, setError] = useState('');
   const [justSaved, setJustSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Paint the app shell to match the header while this view is mounted.
+  useEffect(() => {
+    document.body.classList.add('account-view');
+    return () => document.body.classList.remove('account-view');
+  }, []);
 
   useEffect(() => {
     const profile = isLinked ? getLinkedProfile(linkedEmployee) : getUnlinkedProfile(user);
@@ -109,24 +131,24 @@ export const Account = () => {
 
   return (
     <div className="account">
-      <ContentPanel>
-        <div className="account__page-header">
-          <div className="account__page-copy">
-            <span className="account__page-eyebrow">My account</span>
-            <h2>Update your profile</h2>
-            <p>This is personal to your login — it isn&apos;t shared with the rest of your team.</p>
-          </div>
+      <div className="account__identity">
+        <div className="account__avatar">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" />
+          ) : initials ? (
+            <span aria-hidden="true">{initials}</span>
+          ) : (
+            <i className="fas fa-user-circle" aria-hidden="true" />
+          )}
         </div>
+        <div className="account__identity-copy">
+          <span className="account__identity-name">{displayName}</span>
+          {roleLabel && <span className="account__identity-role">{roleLabel}</span>}
+        </div>
+      </div>
+      <ContentPanel>
         <form className="account__form" aria-label="Account settings" onSubmit={handleSubmit}>
           <div className="account__group" aria-label="Personal details">
-            <div className="account__group-copy">
-              <h3>Personal Details</h3>
-              <p>
-                {isLinked
-                  ? `Linked to your roster profile${linkedEmployee.title ? ` — ${linkedEmployee.title}` : ''}${linkedEmployee.roles?.length ? ` (${linkedEmployee.roles.join(', ')})` : ''}.`
-                  : 'Your name and contact number.'}
-              </p>
-            </div>
             {error && <p className="account__field-error" role="alert">{error}</p>}
             {isLinked ? (
               <>
@@ -136,7 +158,7 @@ export const Account = () => {
                   value={linkedEmployee.name}
                   readOnly
                 />
-                <p className="account__field-hint">Managed in Team — ask a manager to update this.</p>
+                <p className="account__field-hint">Managed by your manager.</p>
                 <InputField
                   label="Phone Number"
                   name="contact"
@@ -191,22 +213,23 @@ export const Account = () => {
             <div className="account__save-bar" role="status">
               <div className="account__save-bar-copy">
                 {isDirty ? (
-                  <span className="account__dirty-indicator">Unsaved changes</span>
+                  <span className="account__dirty-indicator">Unsaved</span>
                 ) : justSaved ? (
-                  <span className="account__saved">All changes saved</span>
-                ) : (
-                  <span className="account__save-bar-hint">No changes to save</span>
-                )}
+                  <span className="account__saved">Saved</span>
+                ) : null}
               </div>
               <div className="account__save-bar-actions">
                 <button type="button" className="button-outline" onClick={handleDiscard} disabled={!isDirty}>
-                  Discard changes
+                  <span className="account__action-icon" aria-hidden="true">
+                    <i className="fas fa-rotate-left" />
+                  </span>
+                  Discard
                 </button>
                 <Button type="submit" className="account__save-bar-button" disabled={!canSave || submitting}>
                   <span className="account__action-icon" aria-hidden="true">
                     <i className="fas fa-floppy-disk" />
                   </span>
-                  {submitting ? 'Saving…' : 'Save changes'}
+                  {submitting ? 'Saving…' : 'Save'}
                 </Button>
               </div>
             </div>
@@ -214,7 +237,7 @@ export const Account = () => {
         </form>
 
         <div className="account__session">
-          <button type="button" className="account__signout-link" onClick={signOut}>
+          <button type="button" className="account__signout" onClick={signOut}>
             <i className="fas fa-arrow-right-from-bracket" aria-hidden="true" />
             Sign out
           </button>

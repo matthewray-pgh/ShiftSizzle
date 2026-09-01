@@ -4,7 +4,7 @@ import { Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { Button, InputField } from '../../Components';
 import { useAuth } from '../../state/AuthState';
 import { supabase } from '../../lib/supabaseClient';
-import logo from '../../Assets/ShiftSizzle.Logo.png';
+import logo from '../../Assets/ShiftSizzle.Logo.OnDark.png';
 
 import './Auth.scss';
 
@@ -53,9 +53,9 @@ export const SignIn = () => {
   };
 
   return (
-    <div className="auth-page">
+    <div className="auth-page auth-page--brandmark">
+      <img className="auth-page__brandmark" src={logo} alt="ShiftSizzle" />
       <div className="auth-page__card">
-        <img className="auth-page__logo" src={logo} alt="ShiftSizzle" />
         <div className="auth-page__heading">
           <h2>Sign in</h2>
           <p>Welcome back — sign in to your workspace.</p>
