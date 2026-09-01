@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 
 import { ContentPanel } from '../../Components';
 import { DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getWeekView, useAppState } from '../../state/AppState';
@@ -39,11 +39,22 @@ export const Dashboard = () => {
   const { state, dispatch } = useAppState();
   const { employees, schedule: liveSchedule, settings } = state;
   const { user, membership } = useAuth();
+
+  // Paint the app shell to match the header while this view is mounted.
+  useEffect(() => {
+    document.body.classList.add('dashboard-view');
+    return () => document.body.classList.remove('dashboard-view');
+  }, []);
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
   const operatingHoursSummary = useMemo(
     () => buildOperatingHoursSummary(settings.operatingHours),
     [settings.operatingHours]
+  );
+
+  const todayLabel = useMemo(
+    () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+    []
   );
 
   // The Dashboard always reflects the actual current calendar week, not
@@ -167,7 +178,12 @@ export const Dashboard = () => {
     <div className="dashboard">
       <div className="dashboard__top">
         <div className="dashboard__hero">
-          <p className="dashboard__eyebrow">{settings.locationName}</p>
+          <p className="dashboard__today">
+            <span className="dashboard__today-date">{todayLabel}</span>
+            {schedule.weekLabel && (
+              <span className="dashboard__today-week">{schedule.weekLabel}</span>
+            )}
+          </p>
           <h1>Hello, {me?.name ?? user?.email}</h1>
           <p className="dashboard__summary">
             {isManager

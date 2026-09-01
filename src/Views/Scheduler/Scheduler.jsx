@@ -375,7 +375,6 @@ export const Scheduler = () => {
       <ContentPanel>
         <div className="scheduler__page-header">
           <div className="scheduler__page-copy">
-            <span className="scheduler__page-eyebrow">Schedule workspace</span>
             <h2>Build Schedule</h2>
             <p className="scheduler__subhead">
               {hasWeekRange

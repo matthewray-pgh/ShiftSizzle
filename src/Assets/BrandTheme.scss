@@ -25,16 +25,6 @@ a {
   color: styles.$primary;
 }
 
-.dashboard__eyebrow,
-.scheduler__page-eyebrow,
-.scheduler__step-eyebrow,
-.team__control-eyebrow,
-.settings__page-eyebrow,
-.shifts__page-eyebrow {
-  background: var(--brand-primary-soft) !important;
-  color: var(--brand-primary-strong) !important;
-}
-
 .dashboard__metric,
 .dashboard__panel,
 .team__member-panel,
@@ -134,7 +124,6 @@ a {
 .scheduler__employee-cap,
 .scheduler__view-switcher,
 .scheduler__coverage-plan-meta span,
-.scheduler__step-eyebrow,
 .scheduler__coverage-state.is-pending,
 .shifts__scheduler-link,
 .shifts__layout-toggle,

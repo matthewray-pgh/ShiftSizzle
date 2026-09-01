@@ -110,7 +110,6 @@ export const Settings = () => {
       <ContentPanel>
         <div className="settings__page-header">
           <div className="settings__page-copy">
-            <span className="settings__page-eyebrow">Workspace settings</span>
             <h2>Manage business defaults and scheduling rules</h2>
             <p>Update the shared configuration that shapes staffing, roles, and operating hours across the app.</p>
           </div>
