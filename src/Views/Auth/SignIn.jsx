@@ -44,7 +44,9 @@ export const SignIn = () => {
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      // Include the Vite base path (`/ShiftSizzle/` on GitHub Pages, `/` in dev)
+      // so Supabase returns to the deployed app rather than the domain root.
+      options: { redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
     });
 
     if (oauthError) {
