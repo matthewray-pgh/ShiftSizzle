@@ -6,8 +6,10 @@ import logo from "../Assets/ShiftSizzle.Logo.OnDark.png";
 
 import "./Layout.scss";
 
+// `owner` is the internal account-role value; it's surfaced to people as
+// "Administrator" since the seat holder is often a GM/admin, not the owner.
 const ROLE_LABELS = {
-  owner: "Owner workspace",
+  owner: "Administrator workspace",
   manager: "Manager workspace",
   staff: "Staff workspace",
 };

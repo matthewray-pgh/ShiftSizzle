@@ -105,10 +105,17 @@ describe('History view', () => {
   it('shows an onboarding empty state when no schedules exist', async () => {
     await renderView(History);
 
-    expect(screen.getByText('No schedules yet')).toBeInTheDocument();
+    expect(screen.getByText('Start your schedule')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Go to Builder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
     expect(window.location.hash).toBe('#/schedule/build');
+  });
+
+  it('hides schedule-building actions from staff', async () => {
+    await renderView(History, { accountRole: 'staff' });
+
+    expect(screen.getByText('Start your schedule')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
   });
 
   it('lists saved and published schedules newest to oldest with status badges', async () => {

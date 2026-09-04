@@ -68,51 +68,127 @@
 
   &__card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
     margin-top: 20px;
   }
 
   &__metric {
-    padding: 18px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #fff 0%, #f7f7f7 100%);
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 16px;
+    background: styles.$card;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
     animation: dashboard-rise-in 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
 
-    @for $i from 1 through 3 {
+    // Per-card accent, consumed by the icon chip and the trend row.
+    --metric-accent: #{styles.$primary};
+    --metric-accent-soft: rgba(255, 107, 53, 0.12);
+
+    @for $i from 1 through 4 {
       &:nth-child(#{$i}) {
-        animation-delay: #{140 + ($i - 1) * 70}ms;
+        animation-delay: #{140 + ($i - 1) * 60}ms;
       }
     }
 
-    span {
-      display: block;
-      margin-bottom: 12px;
-      color: styles.$text-secondary;
-      font-size: 0.9rem;
+    &--brand {
+      --metric-accent: #{styles.$primary};
+      --metric-accent-soft: rgba(255, 107, 53, 0.12);
     }
 
-    strong {
-      font-size: 2rem;
-      line-height: 1;
+    &--positive {
+      --metric-accent: #{styles.$success};
+      --metric-accent-soft: rgba(34, 197, 94, 0.14);
     }
 
-    &--orange strong {
-      color: styles.$primary;
+    &--warning {
+      --metric-accent: #{styles.$warning};
+      --metric-accent-soft: rgba(245, 158, 11, 0.16);
     }
 
-    &--blue strong {
-      color: styles.$secondary-color;
+    &--critical {
+      --metric-accent: #{styles.$danger};
+      --metric-accent-soft: rgba(239, 68, 68, 0.14);
     }
 
-    &--red strong {
+    &--neutral {
+      --metric-accent: #{styles.$text-secondary};
+      --metric-accent-soft: rgba(71, 85, 105, 0.12);
+    }
+  }
+
+  &__metric-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--metric-accent-soft);
+    color: var(--metric-accent);
+    font-size: 0.9rem;
+  }
+
+  &__metric-label {
+    color: styles.$text-secondary;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  &__metric-value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1;
+    color: styles.$text;
+
+    &--text {
+      font-size: 1.15rem;
+    }
+  }
+
+  &__metric-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: styles.$text-secondary;
+
+    i {
+      font-size: 0.7rem;
+    }
+
+    &--positive {
+      color: styles.$success;
+    }
+
+    &--warning {
+      color: styles.$warning;
+    }
+
+    &--critical {
       color: styles.$danger;
     }
 
-    &--green strong {
-      color: styles.$success;
+    &--neutral {
+      color: styles.$text-secondary;
     }
+  }
+
+  &__metric-trend-caption {
+    color: styles.$text-secondary;
+    font-weight: 500;
+  }
+
+  &__metric-trend-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
   }
 
   &__section-heading {
@@ -323,6 +399,12 @@
     .dashboard__today {
       color: styles.$text-on-dark-secondary;
     }
+
+    // Lift the white cards off the navy with a deeper shadow (the brand
+    // theme layer sets this with !important, so match it here).
+    .dashboard__metric {
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32) !important;
+    }
   }
 }
 
@@ -348,22 +430,20 @@
     }
 
     &__card-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      gap: 10px;
       margin-top: 14px;
     }
 
     &__metric {
-      padding: 12px 8px;
-      border-radius: 12px;
+      gap: 8px;
+      padding: 14px;
+    }
 
-      span {
-        margin-bottom: 6px;
-        font-size: 0.7rem;
-      }
+    &__metric-value {
+      font-size: 1.6rem;
 
-      strong {
-        font-size: 1.4rem;
+      &--text {
+        font-size: 1.05rem;
       }
     }
 
@@ -376,5 +456,12 @@
     &__panel {
       padding: 14px;
     }
+  }
+}
+
+// Roomy desktop: the four summary cards sit on a single row.
+@media (min-width: 1200px) {
+  .dashboard__card-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

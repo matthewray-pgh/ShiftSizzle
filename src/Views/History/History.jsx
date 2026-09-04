@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { ContentPanel, StatusBadge } from '../../Components';
+import { Button, ContentPanel, StatusBadge } from '../../Components';
 import { getOpenDays, getShiftTypes, useAppState } from '../../state/AppState';
+import { useAuth } from '../../state/AuthState';
 
 import './History.scss';
 
@@ -60,6 +61,16 @@ export const History = () => {
   const {
     state: { employees, schedules, settings },
   } = useAppState();
+  const { membership } = useAuth();
+  const canManageSchedules = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
+
+  // On phones the first-run (empty) Schedule screen paints the app
+  // background to match the header, so the onboarding card floats on it —
+  // same treatment as the Dashboard view.
+  useEffect(() => {
+    document.body.classList.toggle('history-empty-view', schedules.length === 0);
+    return () => document.body.classList.remove('history-empty-view');
+  }, [schedules.length]);
 
   const openDays = getOpenDays(settings);
   const shiftTypes = getShiftTypes(settings);
@@ -222,17 +233,27 @@ export const History = () => {
   if (!schedules.length) {
     return (
       <div className="history">
-        <ContentPanel>
-          <div className="history__empty-state history__empty-state--onboarding" aria-label="No schedules yet">
-            <span className="history__empty-state-icon" aria-hidden="true">
-              <i className="fas fa-clock-rotate-left" />
-            </span>
-            <h2>No schedules yet</h2>
-            <p className="history__subhead">Save or publish a schedule in Builder to see it here.</p>
-            <button type="button" className="button" onClick={() => redirectToBuilder()}>
-              Go to Builder
-            </button>
-          </div>
+        <div className="history__page-intro">
+          <h2>Schedule history</h2>
+          <p>Review every schedule you&apos;ve saved or published.</p>
+        </div>
+        <ContentPanel className="history__empty-state history__empty-state--onboarding">
+          <span className="history__eyebrow">Start your schedule</span>
+          <p>You haven&apos;t saved or published any schedules yet.</p>
+          {canManageSchedules && (
+            <div className="history__empty-state-actions">
+              <Button
+                type="button"
+                className="history__primary-action"
+                onClick={() => redirectToBuilder()}
+              >
+                <span className="history__action-icon" aria-hidden="true">
+                  <i className="fas fa-plus" />
+                </span>
+                New schedule
+              </Button>
+            </div>
+          )}
         </ContentPanel>
       </div>
     );
@@ -247,14 +268,18 @@ export const History = () => {
               <h2>All schedules</h2>
               <p className="history__subhead">Every schedule you've saved or published, newest first.</p>
             </div>
-            <button
-              type="button"
-              className="button history__new-schedule-action"
-              onClick={() => redirectToBuilder()}
-            >
-              <i className="fas fa-plus" aria-hidden="true" />
-              New schedule
-            </button>
+            {canManageSchedules && (
+              <Button
+                type="button"
+                className="history__primary-action history__new-schedule-action"
+                onClick={() => redirectToBuilder()}
+              >
+                <span className="history__action-icon" aria-hidden="true">
+                  <i className="fas fa-plus" />
+                </span>
+                New schedule
+              </Button>
+            )}
           </div>
 
           {filterControls}
@@ -373,9 +398,11 @@ export const History = () => {
             <button type="button" className="button-outline" onClick={() => setSelectedId('')}>
               Back to all schedules
             </button>
-            <button type="button" className="button" onClick={() => redirectToBuilder(schedulerQuery)}>
-              Edit Schedule
-            </button>
+            {canManageSchedules && (
+              <button type="button" className="button" onClick={() => redirectToBuilder(schedulerQuery)}>
+                Edit Schedule
+              </button>
+            )}
           </div>
         </section>
       </ContentPanel>

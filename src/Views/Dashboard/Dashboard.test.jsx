@@ -84,7 +84,8 @@ describe('Dashboard view', () => {
     await renderView(Dashboard);
 
     expect(screen.getByText('Hello, Jen Ray')).toBeInTheDocument();
-    expect(screen.getByText('Active employees')).toBeInTheDocument();
+    expect(screen.getByText('Coverage')).toBeInTheDocument();
+    expect(screen.getByText('Shifts scheduled')).toBeInTheDocument();
     expect(screen.getByText('Business Hours')).toBeInTheDocument();
 
     // A fresh org has no configured hours yet (operating_hours seeds as
@@ -148,12 +149,12 @@ describe('Dashboard view', () => {
       ],
     });
 
-    expect(screen.getByText('Assigned shifts')).toBeInTheDocument();
-    const assignedCard = screen.getByText('Assigned shifts').closest('.dashboard__metric');
+    expect(screen.getByText('Shifts scheduled')).toBeInTheDocument();
+    const assignedCard = screen.getByText('Shifts scheduled').closest('.dashboard__metric');
     const openCard = screen.getByText('Open shifts').closest('.dashboard__metric');
 
-    expect(assignedCard).toHaveTextContent('1');
-    expect(openCard).toHaveTextContent('2');
+    expect(assignedCard.querySelector('.dashboard__metric-value')).toHaveTextContent('1');
+    expect(openCard.querySelector('.dashboard__metric-value')).toHaveTextContent('2');
   });
 
   it('shows the current week\'s schedule even when a different week is loaded in the Scheduler canvas', async () => {
@@ -190,11 +191,11 @@ describe('Dashboard view', () => {
     expect(screen.getByText('Patio opens for summer.')).toBeInTheDocument();
     expect(screen.queryByText('Draft notes for the future week.')).not.toBeInTheDocument();
 
-    const assignedCard = screen.getByText('Assigned shifts').closest('.dashboard__metric');
+    const assignedCard = screen.getByText('Shifts scheduled').closest('.dashboard__metric');
     const openCard = screen.getByText('Open shifts').closest('.dashboard__metric');
 
-    expect(assignedCard).toHaveTextContent('1');
-    expect(openCard).toHaveTextContent('0');
+    expect(assignedCard.querySelector('.dashboard__metric-value')).toHaveTextContent('1');
+    expect(openCard.querySelector('.dashboard__metric-value')).toHaveTextContent('0');
   });
 
   it('shows the logged-in employee\'s own shifts in the My Schedule panel, not the whole roster', async () => {
@@ -333,13 +334,18 @@ describe('Dashboard view', () => {
       }],
     });
 
-    // Manager-only content is gone
-    expect(screen.queryByText('Active employees')).not.toBeInTheDocument();
-    expect(screen.queryByText('Assigned shifts')).not.toBeInTheDocument();
+    // Manager-only content is gone — including the team-scoped summary cards
+    expect(screen.queryByText('Shifts scheduled')).not.toBeInTheDocument();
     expect(screen.queryByText('Open shifts')).not.toBeInTheDocument();
+    expect(screen.queryByText('Needs review')).not.toBeInTheDocument();
     expect(screen.queryByText('Publish Status')).not.toBeInTheDocument();
     expect(screen.queryByText('published')).not.toBeInTheDocument();
     expect(screen.queryByText('draft')).not.toBeInTheDocument();
+
+    // Staff instead get their own personal summary cards
+    expect(screen.getByText('My shifts this week')).toBeInTheDocument();
+    expect(screen.getByText('Next shift')).toBeInTheDocument();
+    expect(screen.getByText('Open to pick up')).toBeInTheDocument();
 
     // Content for every employee is still there
     expect(screen.getByText('My Schedule')).toBeInTheDocument();

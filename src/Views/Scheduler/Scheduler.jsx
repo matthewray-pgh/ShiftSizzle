@@ -252,6 +252,13 @@ export const Scheduler = () => {
   const [isEditingWeekStart, setIsEditingWeekStart] = useState(false);
   const [pendingReset, setPendingReset] = useState(false);
 
+  // On phones the builder paints the app background to match the header, so
+  // the white control panels float on it — same treatment as the Dashboard.
+  useEffect(() => {
+    document.body.classList.add('scheduler-view');
+    return () => document.body.classList.remove('scheduler-view');
+  }, []);
+
   const openDays = getOpenDays(settings);
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
@@ -372,40 +379,38 @@ export const Scheduler = () => {
 
   return (
     <div className="scheduler">
-      <ContentPanel>
-        <div className="scheduler__page-header">
-          <div className="scheduler__page-copy">
-            <h2>Build Schedule</h2>
-            <p className="scheduler__subhead">
-              {hasWeekRange
-                ? 'One week, every role. Switching roles below just filters this view — nothing resets.'
-                : 'Choose which day your schedules start on, then pick a start date below.'}
-            </p>
-            <p className="scheduler__editing-context" aria-label="Active editing context">
-              {hasWeekRange ? `Active week: ${schedule.weekLabel}` : 'No week selected yet'}
-            </p>
-          </div>
-          <div className="scheduler__status-panel" aria-label="Schedule status panel">
-            <StatusBadge status={schedule.status} label={schedule.status === 'published' ? 'Published schedule' : 'Draft schedule'} />
-            <p className="scheduler__status-summary">
-              {!hasWeekRange
-                ? 'Set the week to start planning.'
-                : coverageComplete
-                  ? 'Coverage is complete for every role.'
-                  : demandSet
-                    ? `${totals.open} open ${totals.open === 1 ? 'slot' : 'slots'} across the week.`
-                    : 'Add coverage targets to get started.'}
-            </p>
-          </div>
+      <div className="scheduler__page-header">
+        <div className="scheduler__page-copy">
+          <h2>Build Schedule</h2>
+          <p className="scheduler__subhead">
+            {hasWeekRange
+              ? 'One week, every role. Switching roles just filters the view.'
+              : 'Choose which day your schedules start on, then pick a start date below.'}
+          </p>
+          <p className="scheduler__editing-context" aria-label="Active editing context">
+            {hasWeekRange ? `Active week: ${schedule.weekLabel}` : 'No week selected yet'}
+          </p>
         </div>
-      </ContentPanel>
+        <div className="scheduler__status-panel" aria-label="Schedule status panel">
+          <StatusBadge status={schedule.status} label={schedule.status === 'published' ? 'Published schedule' : 'Draft schedule'} />
+          <p className="scheduler__status-summary">
+            {!hasWeekRange
+              ? 'Set the week to start planning.'
+              : coverageComplete
+                ? 'Coverage is complete for every role.'
+                : demandSet
+                  ? `${totals.open} open ${totals.open === 1 ? 'slot' : 'slots'} across the week.`
+                  : 'Add coverage targets to get started.'}
+          </p>
+        </div>
+      </div>
 
       <ContentPanel>
         <div className="scheduler__control-card-header">
           <div>
             <h3>Week</h3>
             <p className="scheduler__helper-copy scheduler__helper-copy--compact">
-              Pick the week you're planning. Every role for that week lives on this one canvas.
+              Pick the week you're planning.
             </p>
           </div>
           {hasWeekRange && (
@@ -429,7 +434,7 @@ export const Scheduler = () => {
               ))}
             </select>
             <p className="scheduler__helper-copy scheduler__helper-copy--compact">
-              Schedules always start on this day. You can change it any time.
+              Schedules always start on this day.
             </p>
           </div>
         ) : (
@@ -451,12 +456,10 @@ export const Scheduler = () => {
         />
         <p className="scheduler__helper-copy scheduler__helper-copy--compact">
           {!hasWeekSettings
-            ? 'Choose which day your schedules start on, then pick a start date below.'
-            : schedule.startDate && !hasWeekRange
-              ? `Pick a ${configuredWeekStart} so the generated week matches the workspace schedule cycle.`
-              : hasWeekRange
-                ? `${configuredWeekStart} to ${configuredWeekEnd}. ${schedule.weekLabel}.`
-                : `Choose a ${configuredWeekStart} start date for the schedule you want to generate.`}
+            ? 'Set a start day above first.'
+            : hasWeekRange
+              ? `${configuredWeekStart} to ${configuredWeekEnd}.`
+              : `Pick a ${configuredWeekStart} to match your schedule week.`}
         </p>
       </ContentPanel>
 
@@ -555,8 +558,8 @@ export const Scheduler = () => {
           <div className="scheduler__modal">
             <h2 id="reset-week-modal-title">Reset this week?</h2>
             <p>
-              This clears coverage targets, assignments, and notes for every role in {schedule.weekLabel || 'this week'}.
-              Schedules you've already saved or published stay in Schedule history.
+              Clears coverage targets, assignments, and notes for every role in {schedule.weekLabel || 'this week'}.
+              Saved and published schedules aren't affected.
             </p>
             <div className="scheduler__modal-actions">
               <button type="button" className="button-outline" onClick={() => setPendingReset(false)}>

@@ -10,6 +10,10 @@ const mapOrganizationRowToSettings = (row) => ({
   schedulerName: row.scheduler_name,
   publishNotifications: row.publish_notifications,
   shiftTypes: row.shift_types,
+  // `team_roles` is the current column; `additional_team_roles` is only
+  // read here so a not-yet-migrated org still hydrates (AppState folds the
+  // legacy custom-only list back into the flat one).
+  teamRoles: row.team_roles ?? undefined,
   additionalTeamRoles: row.additional_team_roles,
   weekStartsOn: row.week_starts_on,
   operatingHours: row.operating_hours,
@@ -21,7 +25,7 @@ const mapSettingsToOrganizationRow = (settings) => ({
   scheduler_name: settings.schedulerName,
   publish_notifications: settings.publishNotifications,
   shift_types: settings.shiftTypes,
-  additional_team_roles: settings.additionalTeamRoles,
+  team_roles: settings.teamRoles,
   week_starts_on: settings.weekStartsOn,
   operating_hours: settings.operatingHours,
 });

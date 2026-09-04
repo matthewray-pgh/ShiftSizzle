@@ -31,10 +31,12 @@ export const Account = () => {
     || user?.email
     || '';
   const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '';
-  const roleLabel = linkedEmployee?.title
-    || (membership?.accountRole
+  const accountRoleLabel = membership?.accountRole === 'owner'
+    ? 'Administrator'
+    : membership?.accountRole
       ? membership.accountRole.charAt(0).toUpperCase() + membership.accountRole.slice(1)
-      : '');
+      : '';
+  const roleLabel = linkedEmployee?.title || accountRoleLabel;
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)

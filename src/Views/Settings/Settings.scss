@@ -1,11 +1,12 @@
 @use '../../Assets/Styles.scss' as styles;
 
 .settings {
+  // Bare page header on the app background, above the settings panel —
+  // matches the Team roster / Schedule screens.
   &__page-header {
     display: grid;
     gap: 0.75rem;
-    margin: 0 0 1rem;
-    padding: 0 0 0.2rem;
+    margin: 10px 20px 16px;
   }
 
   &__page-copy {
@@ -25,8 +26,13 @@
     }
   }
 
+  // No outer panel — each __group / __save-bar is its own floating card
+  // (see their own bg + shadow). Capped so control line-length stays
+  // readable; on wide screens each group splits into a label column + a
+  // controls column instead of stretching one narrow field edge to edge.
   &__form {
-    max-width: 760px;
+    max-width: 1000px;
+    margin: 0 20px 24px;
     display: grid;
     gap: 1.25rem;
   }
@@ -39,6 +45,12 @@
     border-radius: 18px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92));
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  }
+
+  &__group-body {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
   }
 
   &__section-form {
@@ -56,6 +68,24 @@
     p {
       margin: 0.35rem 0 0;
       color: styles.$text-secondary;
+    }
+  }
+
+  @media (min-width: 880px) {
+    &__group {
+      grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+      gap: 1rem 2.5rem;
+      padding: 1.5rem 1.75rem;
+      align-items: start;
+    }
+
+    &__group-body {
+      max-width: 480px;
+    }
+
+    // Business Hours' day rows need the whole controls column.
+    &__group--wide &__group-body {
+      max-width: none;
     }
   }
 
@@ -393,9 +423,38 @@
   }
 }
 
+// On phones, paint the app background navy to match the header (toggled by
+// Settings.jsx) and lift the bare page-header copy onto it. The settings
+// panel keeps its light surface and reads as a card floating on the navy.
+@media (max-width: 700px) {
+  body.settings-view {
+    background: styles.$primary-color;
+  }
+
+  body.settings-view {
+    .settings__page-header {
+      margin: 10px 16px 16px;
+    }
+
+    // !important to beat the brand-theme layer, which pins this h2 to navy.
+    .settings__page-copy h2 {
+      color: styles.$text-on-dark !important;
+    }
+
+    .settings__page-copy p {
+      color: styles.$text-on-dark-secondary;
+    }
+  }
+}
+
 @media (max-width: 720px) {
   .settings {
-    &__group {
+    &__form {
+      margin: 0 16px 24px;
+    }
+
+    &__group,
+    &__group-body {
       gap: 0.6rem;
     }
 
