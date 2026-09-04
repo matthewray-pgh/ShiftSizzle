@@ -28,6 +28,11 @@ export const BASE_TEAM_ROLES = Object.freeze({
   COOK: "Cook",
 });
 
+// Seeded into a new org's editable team-roles list. Every one of these can
+// later be removed in Settings (as long as no employee or saved schedule
+// still references it) — they are starting defaults, not fixed roles.
+export const DEFAULT_TEAM_ROLES = Object.freeze(Object.values(BASE_TEAM_ROLES));
+
 const DEFAULT_SHIFTS_PER_WEEK = 5;
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const YEAR_FORMATTER = new Intl.DateTimeFormat("en-US", { year: "numeric" });
@@ -58,11 +63,23 @@ export const getShiftTypes = (settings = {}) => {
   return configuredShiftTypes.length ? configuredShiftTypes : [...BASE_SHIFT_TYPES];
 };
 
-export const getTeamRoles = (settings = {}, employees = []) => getUniqueValues([
-  ...Object.values(BASE_TEAM_ROLES),
-  ...(settings.additionalTeamRoles ?? []),
-  ...employees.flatMap((employee) => employee.roles ?? []),
-]);
+// The org's configured team-roles list, unioned with any role an employee
+// still holds — so a role that's in use never silently drops out of
+// scheduling even if it was removed from the Settings list.
+export const getTeamRoles = (settings = {}, employees = []) => {
+  const configured = getUniqueValues(settings.teamRoles ?? []);
+  const list = configured.length ? configured : [...DEFAULT_TEAM_ROLES];
+
+  return getUniqueValues([
+    ...list,
+    ...employees.flatMap((employee) => employee.roles ?? []),
+  ]);
+};
+
+// Legacy settings stored team roles as an implicit base list plus a
+// custom-only `additionalTeamRoles`; fold that into the single flat list.
+const legacyTeamRoles = (additionalTeamRoles = []) =>
+  getUniqueValues([...DEFAULT_TEAM_ROLES, ...additionalTeamRoles]);
 
 const createAvailability = (allowedShifts = BASE_SHIFT_TYPES) =>
   Object.fromEntries(DAYS.map((day) => [day, [...allowedShifts]]));
@@ -562,7 +579,11 @@ export const getRolesWithSignal = (state, teamRoles) =>
     );
   });
 
-export const computeWeekCoverage = (state, teamRoles) => {
+// Rolls the per-role schedule review (see calculateScheduleReview) up into
+// week-level totals across every role that has coverage targets or
+// assignments. `state.schedule` is whatever week the caller wants scored —
+// the live canvas, or a getWeekView() snapshot of a past/future week.
+export const computeWeekReviewTotals = (state, teamRoles) => {
   const shiftTypes = getShiftTypes(state.settings);
   const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
   const rolesWithSignal = getRolesWithSignal(state, teamRoles);
@@ -581,8 +602,16 @@ export const computeWeekCoverage = (state, teamRoles) => {
     return {
       totalRequired: totals.totalRequired + review.metrics.requiredSlots,
       totalOpen: totals.totalOpen + review.metrics.openSlots,
+      gapCount: totals.gapCount + review.coverageGaps.length,
+      capAlertCount: totals.capAlertCount + review.shiftCapAlerts.length,
     };
-  }, { totalRequired: 0, totalOpen: 0 });
+  }, { totalRequired: 0, totalOpen: 0, gapCount: 0, capAlertCount: 0 });
+};
+
+export const computeWeekCoverage = (state, teamRoles) => {
+  const { totalRequired, totalOpen } = computeWeekReviewTotals(state, teamRoles);
+
+  return { totalRequired, totalOpen };
 };
 
 // Collapses every saved/published record for a week into the single set of
@@ -720,7 +749,7 @@ const createDefaultState = () => {
     schedulerName: "",
     publishNotifications: true,
     shiftTypes: [...BASE_SHIFT_TYPES],
-    additionalTeamRoles: [],
+    teamRoles: [...DEFAULT_TEAM_ROLES],
     weekStartsOn: "",
     operatingHours: normalizeOperatingHours(),
   };
@@ -738,17 +767,19 @@ const createDefaultState = () => {
 };
 
 const normalizeSettings = (settings = {}, schedule = {}) => {
-  const normalizedSettings = {
+  const { additionalTeamRoles: _legacyAdditionalTeamRoles, ...normalizedSettings } = {
     ...createDefaultState().settings,
     ...settings,
   };
 
+  const explicitTeamRoles = getUniqueValues(settings.teamRoles ?? []);
+
   return {
     ...normalizedSettings,
     shiftTypes: getShiftTypes(normalizedSettings),
-    additionalTeamRoles: getUniqueValues(normalizedSettings.additionalTeamRoles).filter(
-      (role) => !Object.values(BASE_TEAM_ROLES).includes(role)
-    ),
+    teamRoles: explicitTeamRoles.length
+      ? explicitTeamRoles
+      : legacyTeamRoles(settings.additionalTeamRoles ?? []),
     weekStartsOn: inferWeekStartsOn(normalizedSettings, schedule),
     operatingHours: normalizeOperatingHours(normalizedSettings.operatingHours),
   };
@@ -876,7 +907,7 @@ const appStateReducer = (state, action) => {
       const weekRange = buildWeekRange(state.schedule.startDate, settings.weekStartsOn);
       const roleRequirements = normalizeRoleRequirements(state.schedule.roleRequirements, teamRoles, shiftTypes, operatingHours);
       const assignments = normalizeAssignments(state.schedule.assignments, employees, teamRoles, shiftTypes, operatingHours);
-      const invalidatesDraft = ["shiftTypes", "additionalTeamRoles", "operatingHours", "weekStartsOn"]
+      const invalidatesDraft = ["shiftTypes", "teamRoles", "operatingHours", "weekStartsOn"]
         .some((key) => key in action.payload);
       const draftResetFields = invalidatesDraft
         ? { hasUnsavedChanges: true, status: "draft" }

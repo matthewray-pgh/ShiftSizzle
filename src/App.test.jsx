@@ -41,7 +41,7 @@ describe('ShiftSizzle application', () => {
     );
 
     expect(await screen.findByText('Hello, Jen Ray')).toBeInTheDocument();
-    expect(screen.getByText('Active employees')).toBeInTheDocument();
+    expect(screen.getByText('Coverage')).toBeInTheDocument();
     expect(screen.getAllByText('Schedule').length).toBeGreaterThan(0);
   });
 
@@ -78,7 +78,7 @@ describe('ShiftSizzle application', () => {
       </AuthProvider>
     );
 
-    await screen.findByText('Active employees');
+    await screen.findByText('Coverage');
     expect(screen.getByLabelText('My account', { selector: '.layout__header-main-user-pill' })).toHaveTextContent('test-user@example.com');
   });
 
