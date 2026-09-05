@@ -4,7 +4,9 @@ import {
   Button,
   InputField,
 } from '../../Components';
-import { DAYS, useAppState } from '../../state/AppState';
+import { DAYS, formatShiftLabel, useAppState } from '../../state/AppState';
+
+const emptyCoverageRow = (shiftTypes) => Object.fromEntries(shiftTypes.map((shift) => [shift, 0]));
 
 import './Settings.scss';
 
@@ -14,7 +16,10 @@ export const Settings = () => {
   const [justSaved, setJustSaved] = useState(false);
   const [newShiftType, setNewShiftType] = useState('');
   const [newTeamRole, setNewTeamRole] = useState('');
+  const [coverageRole, setCoverageRole] = useState(state.settings.teamRoles?.[0] ?? '');
   const derivedWeekEnd = form.weekStartsOn ? DAYS[(DAYS.indexOf(form.weekStartsOn) + 6) % DAYS.length] : '';
+  const activeCoverageRole = form.teamRoles.includes(coverageRole) ? coverageRole : (form.teamRoles[0] ?? '');
+  const coverageRow = (day) => form.roleCoverage?.[activeCoverageRole]?.[day] ?? emptyCoverageRow(form.shiftTypes);
 
   // A role can't be removed while an employee still holds it or a saved
   // schedule was built for it.
@@ -43,11 +48,13 @@ export const Settings = () => {
     'locationName',
     'schedulerName',
   ].some((field) => form[field] !== state.settings[field]);
-  const shiftsDirty = JSON.stringify(form.shiftTypes) !== JSON.stringify(state.settings.shiftTypes);
+  const shiftsDirty = JSON.stringify(form.shiftTypes) !== JSON.stringify(state.settings.shiftTypes)
+    || JSON.stringify(form.shiftTimes ?? {}) !== JSON.stringify(state.settings.shiftTimes ?? {});
   const rolesDirty = JSON.stringify(form.teamRoles) !== JSON.stringify(state.settings.teamRoles);
+  const coverageDirty = JSON.stringify(form.roleCoverage ?? {}) !== JSON.stringify(state.settings.roleCoverage ?? {});
   const schedulingDirty = form.weekStartsOn !== state.settings.weekStartsOn;
   const hoursDirty = JSON.stringify(form.operatingHours) !== JSON.stringify(state.settings.operatingHours);
-  const isDirty = workspaceDirty || shiftsDirty || rolesDirty || schedulingDirty || hoursDirty;
+  const isDirty = workspaceDirty || shiftsDirty || rolesDirty || coverageDirty || schedulingDirty || hoursDirty;
   const canSave = isDirty && !(schedulingDirty && !form.weekStartsOn);
 
   const updateForm = (field, value) => {
@@ -62,7 +69,12 @@ export const Settings = () => {
       return;
     }
 
-    updateForm('shiftTypes', [...form.shiftTypes, nextShiftType]);
+    setJustSaved(false);
+    setForm((currentForm) => ({
+      ...currentForm,
+      shiftTypes: [...currentForm.shiftTypes, nextShiftType],
+      shiftTimes: { ...(currentForm.shiftTimes ?? {}), [nextShiftType]: { startTime: '', endTime: '' } },
+    }));
     setNewShiftType('');
   };
 
@@ -71,7 +83,33 @@ export const Settings = () => {
       return;
     }
 
-    updateForm('shiftTypes', form.shiftTypes.filter((shiftType) => shiftType !== shiftTypeToRemove));
+    setJustSaved(false);
+    setForm((currentForm) => {
+      const { [shiftTypeToRemove]: _removed, ...remainingTimes } = currentForm.shiftTimes ?? {};
+
+      return {
+        ...currentForm,
+        shiftTypes: currentForm.shiftTypes.filter((shiftType) => shiftType !== shiftTypeToRemove),
+        shiftTimes: remainingTimes,
+      };
+    });
+  };
+
+  // Optional per-label time range — an empty field just means "no time set".
+  const updateShiftTime = (label, field, value) => {
+    setJustSaved(false);
+    setForm((currentForm) => ({
+      ...currentForm,
+      shiftTimes: {
+        ...(currentForm.shiftTimes ?? {}),
+        [label]: {
+          startTime: '',
+          endTime: '',
+          ...(currentForm.shiftTimes?.[label] ?? {}),
+          [field]: value,
+        },
+      },
+    }));
   };
 
   const addTeamRole = () => {
@@ -91,6 +129,29 @@ export const Settings = () => {
     }
 
     updateForm('teamRoles', form.teamRoles.filter((role) => role !== roleToRemove));
+  };
+
+  const setCoverageGrid = (role, nextGrid) => {
+    updateForm('roleCoverage', {
+      ...(form.roleCoverage ?? {}),
+      [role]: nextGrid,
+    });
+  };
+
+  const updateCoverage = (role, day, shift, rawValue) => {
+    const value = Math.max(0, parseInt(rawValue, 10) || 0);
+    const currentGrid = form.roleCoverage?.[role] ?? {};
+
+    setCoverageGrid(role, {
+      ...currentGrid,
+      [day]: { ...emptyCoverageRow(form.shiftTypes), ...(currentGrid[day] ?? {}), [shift]: value },
+    });
+  };
+
+  const applyCoverageToAllDays = (role, sourceDay) => {
+    const sourceRow = { ...emptyCoverageRow(form.shiftTypes), ...(form.roleCoverage?.[role]?.[sourceDay] ?? {}) };
+
+    setCoverageGrid(role, Object.fromEntries(DAYS.map((day) => [day, { ...sourceRow }])));
   };
 
   const updateOperatingHours = (day, field, value) => {
@@ -153,18 +214,56 @@ export const Settings = () => {
               <h3>Shift Types</h3>
               {shiftsDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
             </div>
-            <p>Used across scheduling and availability.</p>
+            <p>Used across scheduling and availability. Times are optional.</p>
           </div>
           <div className="settings__group-body">
-            <div className="settings__token-row">
-              {form.shiftTypes.map((shiftType) => (
-                <span key={shiftType} className="settings__token">
-                  <span>{shiftType}</span>
-                  <button type="button" onClick={() => removeShiftType(shiftType)} disabled={form.shiftTypes.length <= 1} aria-label={`Remove ${shiftType} shift type`}>
-                    <i className="fas fa-xmark" aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
+            <div className="settings__shift-list">
+              {form.shiftTypes.map((shiftType) => {
+                const times = form.shiftTimes?.[shiftType] ?? { startTime: '', endTime: '' };
+
+                return (
+                  <div key={shiftType} className="settings__shift-row">
+                    <div className="settings__shift-row-head">
+                      <strong>{shiftType}</strong>
+                      <button
+                        type="button"
+                        className="settings__shift-remove"
+                        onClick={() => removeShiftType(shiftType)}
+                        disabled={form.shiftTypes.length <= 1}
+                        aria-label={`Remove ${shiftType} shift type`}
+                      >
+                        <i className="fas fa-xmark" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="settings__shift-row-times">
+                      <div className="settings__shift-time">
+                        <label htmlFor={`${shiftType}-shift-start`} className="settings__hours-label">Start</label>
+                        <input
+                          id={`${shiftType}-shift-start`}
+                          type="time"
+                          min="00:00"
+                          max="23:59"
+                          className="settings__hours-input"
+                          value={times.startTime ?? ''}
+                          onChange={(event) => updateShiftTime(shiftType, 'startTime', event.target.value)}
+                        />
+                      </div>
+                      <div className="settings__shift-time">
+                        <label htmlFor={`${shiftType}-shift-end`} className="settings__hours-label">End</label>
+                        <input
+                          id={`${shiftType}-shift-end`}
+                          type="time"
+                          min="00:00"
+                          max="23:59"
+                          className="settings__hours-input"
+                          value={times.endTime ?? ''}
+                          onChange={(event) => updateShiftTime(shiftType, 'endTime', event.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className="settings__inline-form">
               <InputField label="Add Shift Type" name="newShiftType" value={newShiftType} onChange={setNewShiftType} placeholder="Ex. Prep" />
@@ -215,6 +314,64 @@ export const Settings = () => {
                 </span>
                 Add Role
               </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings__group settings__group--wide" aria-label="Coverage target settings">
+          <div className="settings__group-copy">
+            <div className="settings__group-heading">
+              <h3>Coverage Targets</h3>
+              {coverageDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
+            </div>
+            <p>How many of each role each shift needs. Set once here — schedules start from this, so weekly work is just assigning people.</p>
+          </div>
+          <div className="settings__group-body">
+            <label className="settings__field-label" htmlFor="coverage-role">Role</label>
+            <select
+              id="coverage-role"
+              className="settings__select"
+              value={activeCoverageRole}
+              onChange={(event) => setCoverageRole(event.target.value)}
+            >
+              {form.teamRoles.map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+
+            <div className="settings__coverage-grid" aria-label={`Coverage targets for ${activeCoverageRole}`}>
+              {DAYS.map((day) => {
+                const isClosed = !form.operatingHours?.[day]?.isOpen;
+
+                return (
+                  <div key={day} className={`settings__coverage-row ${isClosed ? 'is-closed' : ''}`.trim()}>
+                    <div className="settings__coverage-row-head">
+                      <strong>{day}{isClosed ? <span className="settings__coverage-closed"> · closed</span> : null}</strong>
+                      <button
+                        type="button"
+                        className="settings__inline-link"
+                        onClick={() => applyCoverageToAllDays(activeCoverageRole, day)}
+                      >
+                        Apply to all days
+                      </button>
+                    </div>
+                    <div className="settings__coverage-fields">
+                      {form.shiftTypes.map((shift) => (
+                        <label key={shift} className="settings__coverage-field">
+                          <span>{formatShiftLabel(form, shift)}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            className="settings__coverage-input"
+                            value={coverageRow(day)[shift] ?? 0}
+                            onChange={(event) => updateCoverage(activeCoverageRole, day, shift, event.target.value)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -280,6 +437,8 @@ export const Settings = () => {
                         id={`${day}-open-time`}
                         name={`${day}-open-time`}
                         type="time"
+                        min="00:00"
+                        max="23:59"
                         className="settings__hours-input"
                         value={hours.openTime}
                         onChange={(event) => updateOperatingHours(day, 'openTime', event.target.value)}
@@ -292,6 +451,8 @@ export const Settings = () => {
                         id={`${day}-close-time`}
                         name={`${day}-close-time`}
                         type="time"
+                        min="00:00"
+                        max="23:59"
                         className="settings__hours-input"
                         value={hours.closeTime}
                         onChange={(event) => updateOperatingHours(day, 'closeTime', event.target.value)}

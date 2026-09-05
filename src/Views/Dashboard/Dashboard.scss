@@ -214,6 +214,69 @@
     margin-top: 16px;
   }
 
+  // ---- §5 resume-schedule card ----
+  &__resume {
+    border-left: 4px solid styles.$warning;
+  }
+
+  &__resume-count {
+    font-weight: 700;
+  }
+
+  &__resume-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__resume-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  &__resume-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+
+    strong {
+      color: #14213d;
+      font-size: 0.94rem;
+    }
+
+    span {
+      color: styles.$text-secondary;
+      font-size: 0.82rem;
+    }
+  }
+
+  &__resume-action {
+    flex: 0 0 auto;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    &__resume-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    &__resume-action {
+      text-align: center;
+    }
+  }
+
   &__panel {
     padding: 18px;
     border-radius: 18px;
@@ -382,31 +445,9 @@
 // ============================================================
 // Dark shell — MOBILE ONLY. On phones the Dashboard paints the app
 // background to match the header (see the body-class toggle in
-// Dashboard.jsx) and the hero copy goes light to sit on it. On
-// desktop the layout keeps its original light background and panels.
-// The summary cards / "This Week" panel stay on light surfaces in
-// both cases, so they read as bright cards floating on the navy.
+// The phone view stays on the app's light background — cards read as
+// white panels on the warm off-white gradient, same as desktop.
 // ============================================================
-@media (max-width: 700px) {
-  body.dashboard-view {
-    background: styles.$primary-color;
-
-    .dashboard__hero h1 {
-      color: styles.$text-on-dark;
-    }
-
-    .dashboard__summary,
-    .dashboard__today {
-      color: styles.$text-on-dark-secondary;
-    }
-
-    // Lift the white cards off the navy with a deeper shadow (the brand
-    // theme layer sets this with !important, so match it here).
-    .dashboard__metric {
-      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32) !important;
-    }
-  }
-}
 
 @media (max-width: 1024px) {
   .dashboard {

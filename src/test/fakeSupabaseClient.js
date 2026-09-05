@@ -112,6 +112,7 @@ export const createFakeSupabaseClient = () => {
     employees: [],
     employee_availability: [],
     schedule_records: [],
+    call_outs: [],
     memberships: [],
   };
 
@@ -204,7 +205,7 @@ export const createFakeSupabaseClient = () => {
 // Seeds a fully-hydrated org (matching AppState.jsx's HYDRATE_FROM_SERVER
 // shape) plus a signed-in session/membership, so a component wrapped in
 // AuthProvider > AppStateProvider renders already-loaded data.
-export const seedFakeSupabase = (client, { userId = 'test-user', orgId = 'test-org', settings = {}, employees = [], schedules = [], accountRole = 'owner', employeeId = null } = {}) => {
+export const seedFakeSupabase = (client, { userId = 'test-user', orgId = 'test-org', settings = {}, employees = [], schedules = [], callOuts = [], accountRole = 'owner', employeeId = null } = {}) => {
   const now = new Date().toISOString();
 
   client.__tables.organizations.push({
@@ -214,6 +215,8 @@ export const seedFakeSupabase = (client, { userId = 'test-user', orgId = 'test-o
     scheduler_name: settings.schedulerName ?? '',
     publish_notifications: settings.publishNotifications ?? true,
     shift_types: settings.shiftTypes ?? ['Open', 'Mid', 'Close'],
+    shift_times: settings.shiftTimes ?? {},
+    role_coverage: settings.roleCoverage ?? {},
     team_roles: settings.teamRoles ?? ['Manager', 'Server', 'Host', 'Bartender', 'Cook'],
     additional_team_roles: settings.additionalTeamRoles ?? [],
     week_starts_on: settings.weekStartsOn ?? '',
@@ -260,6 +263,23 @@ export const seedFakeSupabase = (client, { userId = 'test-user', orgId = 'test-o
       saved_at: record.savedAt ?? null,
       published_at: record.publishedAt ?? null,
       version: 1,
+      created_at: now,
+      updated_at: now,
+    });
+  });
+
+  callOuts.forEach((callOut) => {
+    client.__tables.call_outs.push({
+      id: crypto.randomUUID(),
+      org_id: orgId,
+      week_start_date: callOut.weekStartDate,
+      role: callOut.role,
+      day: callOut.day,
+      shift: callOut.shift,
+      employee_id: callOut.employeeId,
+      called_out_at: callOut.calledOutAt ?? now,
+      resolved_via: callOut.resolvedVia ?? null,
+      covered_by: callOut.coveredBy ?? null,
       created_at: now,
       updated_at: now,
     });

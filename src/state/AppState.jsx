@@ -1,12 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { useAuth } from "./AuthState";
-import { buildScheduleRecordId } from "./scheduleRecordId";
+import { buildCallOutId, buildScheduleRecordId } from "./scheduleRecordId";
 import {
   fetchOrgBundle,
   subscribeToOrgChanges,
   updateOrganizationSettings,
   upsertAvailabilityRow,
+  upsertCallOutRow,
   upsertEmployeeRow,
   upsertScheduleRecordRow,
 } from "./supabaseSync";
@@ -61,6 +62,73 @@ export const getShiftTypes = (settings = {}) => {
   const configuredShiftTypes = getUniqueValues(settings.shiftTypes);
 
   return configuredShiftTypes.length ? configuredShiftTypes : [...BASE_SHIFT_TYPES];
+};
+
+// Optional per-label time ranges. The label stays the identity key
+// everywhere (availability, requirements, assignments); a time is display
+// metadata only. Always returns an entry for every current shift type, with
+// empty strings where nothing is set — so consumers never branch on missing
+// keys. Times for labels that no longer exist are dropped.
+export const normalizeShiftTimes = (shiftTimes = {}, shiftTypes = BASE_SHIFT_TYPES) =>
+  Object.fromEntries(
+    shiftTypes.map((label) => {
+      const entry = shiftTimes?.[label] ?? {};
+
+      return [
+        label,
+        {
+          startTime: typeof entry.startTime === "string" ? entry.startTime : "",
+          endTime: typeof entry.endTime === "string" ? entry.endTime : "",
+        },
+      ];
+    })
+  );
+
+export const getShiftTime = (settings = {}, label = "") => {
+  const times = normalizeShiftTimes(settings.shiftTimes, getShiftTypes(settings));
+
+  return times[label] ?? { startTime: "", endTime: "" };
+};
+
+// "13:30" -> "1:30p", "11:00" -> "11a", "" -> "".
+const formatClockPart = (value = "") => {
+  const trimmed = `${value}`.trim();
+
+  if (!/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    return "";
+  }
+
+  const [hoursText, minutesText] = trimmed.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+
+  if (!Number.isFinite(hours) || hours > 23 || minutes > 59) {
+    return "";
+  }
+
+  const period = hours >= 12 ? "p" : "a";
+  const hour12 = hours % 12 || 12;
+
+  return minutes ? `${hour12}:${`${minutes}`.padStart(2, "0")}${period}` : `${hour12}${period}`;
+};
+
+// "" when neither end is set, "11a–4p" when both are, or the one that's set.
+export const formatShiftTimeRange = (shiftTime = {}) => {
+  const start = formatClockPart(shiftTime?.startTime ?? "");
+  const end = formatClockPart(shiftTime?.endTime ?? "");
+
+  if (start && end) {
+    return `${start}–${end}`;
+  }
+
+  return start || end || "";
+};
+
+// "Mid" or, when a time range is configured, "Mid · 11a–4p".
+export const formatShiftLabel = (settings = {}, label = "") => {
+  const range = formatShiftTimeRange(getShiftTime(settings, label));
+
+  return range ? `${label} · ${range}` : label;
 };
 
 // The org's configured team-roles list, unioned with any role an employee
@@ -122,7 +190,20 @@ const formatISODate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const buildWeekRange = (startDateValue, weekStartsOn) => {
+// Shift an ISO yyyy-mm-dd date by `weeks` seven-day steps (may be negative).
+export const addWeeks = (startDateValue, weeks) => {
+  const date = getDateFromISO(startDateValue);
+
+  if (!date) {
+    return "";
+  }
+
+  date.setDate(date.getDate() + weeks * 7);
+
+  return formatISODate(date);
+};
+
+export const buildWeekRange = (startDateValue, weekStartsOn) => {
   const startDate = getDateFromISO(startDateValue);
 
   if (!startDate || !weekStartsOn) {
@@ -200,6 +281,36 @@ const normalizeRequirements = (
         ])
       ),
     ])
+  );
+
+// The coverage template (settings.roleCoverage): how many of each role a
+// given day + shift needs, entered once in Settings. Unlike weekly
+// requirements it is NOT zeroed for closed days — reopening a day should
+// restore the manager's intent — and it carries no per-week state.
+const normalizeCoverageGrid = (grid = {}, shiftTypes = BASE_SHIFT_TYPES) =>
+  Object.fromEntries(
+    DAYS.map((day) => [
+      day,
+      Object.fromEntries(
+        shiftTypes.map((shift) => [shift, Math.max(0, Number(grid?.[day]?.[shift]) || 0)])
+      ),
+    ])
+  );
+
+export const normalizeRoleCoverage = (
+  roleCoverage = {},
+  teamRoles = [],
+  shiftTypes = BASE_SHIFT_TYPES
+) =>
+  Object.fromEntries(
+    teamRoles.map((role) => [role, normalizeCoverageGrid(roleCoverage?.[role], shiftTypes)])
+  );
+
+const roleCoverageHasDemand = (roleCoverage = {}) =>
+  Object.values(roleCoverage).some((grid) =>
+    Object.values(grid ?? {}).some((dayGrid) =>
+      Object.values(dayGrid ?? {}).some((count) => Number(count) > 0)
+    )
   );
 
 const normalizeRoleRequirements = (
@@ -579,6 +690,144 @@ export const getRolesWithSignal = (state, teamRoles) =>
     );
   });
 
+// The manager's outstanding schedule work (§5), one entry per (week, role)
+// that still needs attention: a role with signal whose saved record is
+// either unpublished or still short-staffed. Fully-past weeks are dropped —
+// a stale draft from last month shouldn't nag forever. This is what the
+// nav badge counts and the dashboard "Resume schedule" card lists; the
+// count is of distinct items, not raw open shifts.
+export const getUnresolvedScheduleItems = (state, todayISO = formatISODate(new Date())) => {
+  const shiftTypes = getShiftTypes(state.settings);
+  const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+
+  return state.schedules
+    .filter((record) => recordHasSignal(record) && (!record.endDate || record.endDate >= todayISO))
+    .map((record) => {
+      const review = calculateScheduleReview({
+        assignments: record.assignments ?? {},
+        requirements: record.requirements ?? {},
+        employees: state.employees,
+        selectedRole: record.role,
+        shiftTypes,
+        operatingHours,
+      });
+      const openSlots = review.metrics.openSlots;
+      const unpublished = record.status !== "published";
+
+      if (!openSlots && !unpublished) {
+        return null;
+      }
+
+      return {
+        id: record.id,
+        startDate: record.startDate,
+        weekLabel: record.weekLabel,
+        role: record.role,
+        openSlots,
+        unpublished,
+        firstGapDay: review.coverageGaps[0]?.day ?? null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : a.role.localeCompare(b.role)));
+};
+
+// The saved status of one week: "published" when every signal record for it
+// is published, "draft" when records exist but not all are, "none" when the
+// week has no saved records at all.
+export const getWeekStatus = (schedules = [], startDate) => {
+  const records = schedules.filter((entry) => entry.startDate === startDate);
+  const signalRecords = records.filter(recordHasSignal);
+
+  if (records.length === 0) {
+    return "none";
+  }
+
+  return signalRecords.length > 0 && signalRecords.every((entry) => entry.status === "published")
+    ? "published"
+    : "draft";
+};
+
+// The weeks offered by the "Jump to a week" sheet: last / this / next / the
+// two after, plus any week that already has saved records — de-duplicated,
+// each with its label and saved status, ordered by date.
+export const getWeekChoices = (state, referenceDate = new Date()) => {
+  const weekStartsOn = state.settings.weekStartsOn;
+  const thisWeek = getCurrentWeekStartDate(weekStartsOn, referenceDate);
+
+  if (!thisWeek) {
+    return [];
+  }
+
+  const relatives = new Map([
+    [addWeeks(thisWeek, -1), "Last week"],
+    [thisWeek, "This week"],
+    [addWeeks(thisWeek, 1), "Next week"],
+    [addWeeks(thisWeek, 2), null],
+    [addWeeks(thisWeek, 3), null],
+  ]);
+
+  state.schedules.forEach((entry) => {
+    if (entry.startDate && !relatives.has(entry.startDate)) {
+      relatives.set(entry.startDate, null);
+    }
+  });
+
+  return Array.from(relatives.entries())
+    .filter(([startDate]) => Boolean(startDate))
+    .map(([startDate, relative]) => {
+      const range = buildWeekRange(startDate, weekStartsOn);
+
+      return {
+        startDate,
+        relative,
+        label: range.weekLabel || startDate,
+        status: getWeekStatus(state.schedules, startDate),
+        isCurrent: startDate === thisWeek,
+      };
+    })
+    .sort((a, b) => (a.startDate < b.startDate ? -1 : 1));
+};
+
+// The most recent saved week strictly before `beforeStartDate`, or "" if
+// there is none — the source for "Copy last week" (§7).
+export const getPriorScheduledWeekStart = (schedules = [], beforeStartDate = "") => {
+  const priorStarts = Array.from(
+    new Set(schedules.map((record) => record.startDate).filter((date) => date && date < beforeStartDate))
+  ).sort();
+
+  return priorStarts[priorStarts.length - 1] ?? "";
+};
+
+// Call-outs that still need a replacement — no one is covering the slot yet
+// (§6). The "needs coverage" flag on a shift is derived from this, never a
+// stored boolean.
+export const getUnresolvedCallOuts = (callOuts = []) =>
+  callOuts.filter((callOut) => !callOut.coveredBy);
+
+// Unresolved call-outs on one exact (week, role, day, shift).
+export const getCalledOutFor = (callOuts = [], weekStartDate, role, day, shift) =>
+  getUnresolvedCallOuts(callOuts).filter(
+    (callOut) =>
+      callOut.weekStartDate === weekStartDate
+      && callOut.role === role
+      && callOut.day === day
+      && callOut.shift === shift
+  );
+
+// Copy-last-week conflicts that still matter: the flagged assignment is
+// still on the canvas and the manager hasn't chosen "Keep anyway".
+export const getLiveCopyConflicts = (schedule = {}) =>
+  (schedule.copyConflicts ?? []).filter((conflict) => {
+    if (conflict.resolved) {
+      return false;
+    }
+
+    const shifts = schedule.assignments?.[conflict.role]?.[conflict.employeeId]?.[conflict.day] ?? [];
+
+    return shifts.includes(conflict.shift);
+  });
+
 // Rolls the per-role schedule review (see calculateScheduleReview) up into
 // week-level totals across every role that has coverage targets or
 // assignments. `state.schedule` is whatever week the caller wants scored —
@@ -614,6 +863,207 @@ export const computeWeekCoverage = (state, teamRoles) => {
   return { totalRequired, totalOpen };
 };
 
+// Three-state coverage status for one cell, plus "empty" for no demand.
+// "none" (zero covered) is deliberately distinct from "partial" (short a
+// person) — see §3 of the schedule-builder redesign spec.
+export const coverageStatus = (filled, needed) => {
+  if (needed <= 0) {
+    return "empty";
+  }
+
+  if (filled >= needed) {
+    return "full";
+  }
+
+  return filled <= 0 ? "none" : "partial";
+};
+
+const countAssignedForShift = (roleAssignments, roleEmployees, day, shift) =>
+  roleEmployees.reduce(
+    (count, employee) => count + ((roleAssignments[employee.id]?.[day] ?? []).includes(shift) ? 1 : 0),
+    0,
+  );
+
+// Day x (role | shift) coverage matrix for the Week overview grid (§3).
+// `role` null  -> one row per team role; each cell sums every shift type for
+//                 that role on that day.
+// `role` set   -> one row per shift type of that role; each cell is that one
+//                 shift. Rows carry `role`/`shift` so a cell tap knows what
+//                 the manager pointed at.
+export const computeWeekGrid = ({
+  schedule = {},
+  employees = [],
+  settings = {},
+  teamRoles = [],
+  role = null,
+  callOuts = [],
+  weekStartDate = schedule.startDate,
+}) => {
+  const shiftTypes = getShiftTypes(settings);
+  const openDays = getOpenDays(settings);
+  const activeEmployees = employees.filter((employee) => employee.status !== "archived");
+  const unresolvedCallOuts = getUnresolvedCallOuts(callOuts);
+  const rolesMode = !role;
+
+  const cellFor = (rowRole, rowShifts, day) => {
+    const roleAssignments = schedule.assignments?.[rowRole] ?? {};
+    const requirements = schedule.roleRequirements?.[rowRole] ?? {};
+    const roleEmployees = activeEmployees.filter((employee) => (employee.roles ?? []).includes(rowRole));
+    const needed = rowShifts.reduce((total, shift) => total + (requirements?.[day]?.[shift] ?? 0), 0);
+    const filled = rowShifts.reduce(
+      (total, shift) => total + countAssignedForShift(roleAssignments, roleEmployees, day, shift),
+      0,
+    );
+    const needsCoverage = unresolvedCallOuts.some(
+      (callOut) =>
+        callOut.weekStartDate === weekStartDate
+        && callOut.role === rowRole
+        && callOut.day === day
+        && rowShifts.includes(callOut.shift)
+    );
+
+    return { day, filled, needed, status: coverageStatus(filled, needed), needsCoverage };
+  };
+
+  const rows = rolesMode
+    ? teamRoles.map((teamRole) => ({
+        key: teamRole,
+        label: teamRole,
+        role: teamRole,
+        shift: null,
+        cells: openDays.map((day) => cellFor(teamRole, shiftTypes, day)),
+      }))
+    : shiftTypes.map((shift) => ({
+        key: shift,
+        label: formatShiftLabel(settings, shift),
+        role,
+        shift,
+        cells: openDays.map((day) => cellFor(role, [shift], day)),
+      }));
+
+  return { mode: rolesMode ? "roles" : "shifts", days: openDays, rows };
+};
+
+// The calendar date of each weekday for the week starting on `startDate`
+// (an ISO yyyy-mm-dd on `weekStartsOn`). Used by the Day builder's day tabs.
+export const getWeekDayDates = (startDate, weekStartsOn) => {
+  const start = getDateFromISO(startDate);
+  const startIndex = getDayIndex(weekStartsOn);
+
+  if (!start || startIndex === -1) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    DAYS.map((day) => {
+      const offset = (getDayIndex(day) - startIndex + 7) % 7;
+      const date = new Date(start);
+      date.setDate(start.getDate() + offset);
+
+      return [day, date];
+    })
+  );
+};
+
+// Everyone currently assigned to one exact (role, day, shift) slot.
+export const getAssignedEmployees = ({ schedule = {}, employees = [], role, day, shift }) => {
+  const bucket = schedule.assignments?.[role] ?? {};
+
+  return employees.filter(
+    (employee) =>
+      employee.status !== "archived"
+      && (employee.roles ?? []).includes(role)
+      && (bucket[employee.id]?.[day] ?? []).includes(shift)
+  );
+};
+
+// Everyone who could be added to a (role, day, shift) slot, annotated with
+// why they can't when they can't. Same rules the TOGGLE_ASSIGNMENT reducer
+// enforces — availability, the cross-role weekly shift cap, and no
+// same-day/same-shift double-booking under another role — so the candidate
+// list never offers a pick the reducer would silently reject. Already-
+// assigned employees are excluded. Eligible names sort first, then by who
+// is carrying the lightest week.
+export const getEligibleCandidates = ({ schedule = {}, employees = [], settings = {}, role, day, shift }) => {
+  const operatingHours = normalizeOperatingHours(settings.operatingHours);
+  const allAssignments = schedule.assignments ?? {};
+  const bucket = allAssignments[role] ?? {};
+
+  return employees
+    .filter(
+      (employee) =>
+        employee.status !== "archived"
+        && (employee.roles ?? []).includes(role)
+        && !(bucket[employee.id]?.[day] ?? []).includes(shift)
+    )
+    .map((employee) => {
+      const cap = normalizeShiftsPerWeek(employee);
+      const assignedThisWeek = countAssignedShiftsForEmployee(allAssignments, employee.id, operatingHours);
+      const isAvailable = (employee.availability?.[day] ?? []).includes(shift);
+      const isDoubleBooked = Object.entries(allAssignments).some(
+        ([otherRole, otherBucket]) =>
+          otherRole !== role && (otherBucket[employee.id]?.[day] ?? []).includes(shift)
+      );
+      const blockedReason = !isAvailable
+        ? "unavailable"
+        : isDoubleBooked
+          ? "double-booked"
+          : assignedThisWeek >= cap
+            ? "at-cap"
+            : null;
+
+      return { employee, cap, assignedThisWeek, blockedReason, eligible: !blockedReason };
+    })
+    .sort(
+      (a, b) => Number(b.eligible) - Number(a.eligible) || a.assignedThisWeek - b.assignedThisWeek
+    );
+};
+
+// Per-(role, shift) cards for one day of the Day builder, respecting the
+// active role filter (`role` null = every team role). A card is included
+// when the slot has demand or someone is on it (an over-staffed slot whose
+// target dropped to zero still needs to be visible so people can be moved).
+export const computeDayCards = ({
+  schedule = {},
+  employees = [],
+  settings = {},
+  teamRoles = [],
+  role = null,
+  day,
+  callOuts = [],
+  weekStartDate = schedule.startDate,
+}) => {
+  const shiftTypes = getShiftTypes(settings);
+  const roles = role ? [role] : teamRoles;
+  const employeesById = Object.fromEntries(employees.map((employee) => [employee.id, employee]));
+
+  return roles.flatMap((cardRole) => {
+    const requirements = schedule.roleRequirements?.[cardRole] ?? {};
+
+    return shiftTypes
+      .map((shift) => {
+        const needed = requirements?.[day]?.[shift] ?? 0;
+        const assigned = getAssignedEmployees({ schedule, employees, role: cardRole, day, shift });
+        const calledOut = getCalledOutFor(callOuts, weekStartDate, cardRole, day, shift).map((callOut) => ({
+          ...callOut,
+          employeeName: employeesById[callOut.employeeId]?.name ?? "Someone",
+        }));
+
+        return {
+          key: `${cardRole}__${shift}`,
+          role: cardRole,
+          shift,
+          label: formatShiftLabel(settings, shift),
+          needed,
+          assigned,
+          calledOut,
+          status: coverageStatus(assigned.length, needed),
+        };
+      })
+      .filter((card) => card.needed > 0 || card.assigned.length > 0 || card.calledOut.length > 0);
+  });
+};
+
 // Collapses every saved/published record for a week into the single set of
 // week-level fields the live canvas needs (status, notes, timestamps).
 const summarizeWeekRecords = (recordsForWeek = []) => {
@@ -644,6 +1094,48 @@ const summarizeWeekRecords = (recordsForWeek = []) => {
   };
 };
 
+// Weekly requirements are seeded per role from that role's saved record for
+// the week if one exists (its snapshot, for History accuracy), otherwise
+// from the current Settings coverage template. Requirements are no longer
+// typed per week — see §1 of the schedule-builder redesign spec.
+const seedRoleRequirements = (recordsByRole, settings, teamRoles, shiftTypes, operatingHours) =>
+  normalizeRoleRequirements(
+    Object.fromEntries(teamRoles.map((role) => [
+      role,
+      recordsByRole[role]?.requirements ?? settings.roleCoverage?.[role] ?? {},
+    ])),
+    teamRoles,
+    shiftTypes,
+    operatingHours
+  );
+
+// One-time backfill for orgs created before settings.roleCoverage existed:
+// take the most recently touched saved record per role and lift its
+// requirements grid into the template.
+const deriveCoverageFromSchedules = (schedules = []) => {
+  const timeOf = (entry) => Math.max(
+    entry?.savedAt ? new Date(entry.savedAt).getTime() : 0,
+    entry?.publishedAt ? new Date(entry.publishedAt).getTime() : 0,
+    entry?.createdAt ? new Date(entry.createdAt).getTime() : 0,
+  );
+
+  const latestByRole = {};
+
+  schedules.forEach((entry) => {
+    if (!entry?.role) {
+      return;
+    }
+
+    if (!latestByRole[entry.role] || timeOf(entry) >= timeOf(latestByRole[entry.role])) {
+      latestByRole[entry.role] = entry;
+    }
+  });
+
+  return Object.fromEntries(
+    Object.entries(latestByRole).map(([role, entry]) => [role, entry.requirements ?? {}])
+  );
+};
+
 const hydrateScheduleForWeek = (state, startDate) => {
   const shiftTypes = getShiftTypes(state.settings);
   const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
@@ -652,12 +1144,7 @@ const hydrateScheduleForWeek = (state, startDate) => {
     ? state.schedules.filter((entry) => entry.startDate === startDate)
     : [];
   const recordsByRole = Object.fromEntries(recordsForWeek.map((entry) => [entry.role, entry]));
-  const roleRequirements = normalizeRoleRequirements(
-    Object.fromEntries(recordsForWeek.map((entry) => [entry.role, entry.requirements])),
-    teamRoles,
-    shiftTypes,
-    operatingHours
-  );
+  const roleRequirements = seedRoleRequirements(recordsByRole, state.settings, teamRoles, shiftTypes, operatingHours);
   // Each role's bucket now maps 1:1 to its own saved record for this week —
   // no merge needed, unlike the old flat/shared assignments shape.
   const assignments = Object.fromEntries(teamRoles.map((role) => [
@@ -674,6 +1161,10 @@ const hydrateScheduleForWeek = (state, startDate) => {
     lastPublishedAt: summary.lastPublishedAt,
     roleRequirements,
     assignments,
+    // Copy-last-week review state is per-canvas and transient — switching
+    // weeks always clears it.
+    copiedFrom: null,
+    copyConflicts: [],
   };
 };
 
@@ -739,6 +1230,8 @@ const createDefaultSchedule = (
     lastSavedAt: null,
     lastPublishedAt: null,
     hasUnsavedChanges: false,
+    copiedFrom: null,
+    copyConflicts: [],
   };
 };
 
@@ -749,7 +1242,9 @@ const createDefaultState = () => {
     schedulerName: "",
     publishNotifications: true,
     shiftTypes: [...BASE_SHIFT_TYPES],
+    shiftTimes: normalizeShiftTimes({}, BASE_SHIFT_TYPES),
     teamRoles: [...DEFAULT_TEAM_ROLES],
+    roleCoverage: normalizeRoleCoverage({}, DEFAULT_TEAM_ROLES, BASE_SHIFT_TYPES),
     weekStartsOn: "",
     operatingHours: normalizeOperatingHours(),
   };
@@ -759,6 +1254,9 @@ const createDefaultState = () => {
     employees: [],
     schedule: createDefaultSchedule([], BASE_SHIFT_TYPES, getTeamRoles(settings, []), normalizeOperatingHours()),
     schedules: [],
+    // Call-out events (§6), org-wide and not week-scoped in state — each
+    // row carries its own weekStartDate.
+    callOuts: [],
     // False until the first HYDRATE_FROM_SERVER — lets consumers (and
     // tests) tell "org data hasn't loaded yet" apart from "this org
     // genuinely has zero employees/schedules".
@@ -773,13 +1271,17 @@ const normalizeSettings = (settings = {}, schedule = {}) => {
   };
 
   const explicitTeamRoles = getUniqueValues(settings.teamRoles ?? []);
+  const resolvedShiftTypes = getShiftTypes(normalizedSettings);
+  const resolvedTeamRoles = explicitTeamRoles.length
+    ? explicitTeamRoles
+    : legacyTeamRoles(settings.additionalTeamRoles ?? []);
 
   return {
     ...normalizedSettings,
-    shiftTypes: getShiftTypes(normalizedSettings),
-    teamRoles: explicitTeamRoles.length
-      ? explicitTeamRoles
-      : legacyTeamRoles(settings.additionalTeamRoles ?? []),
+    shiftTypes: resolvedShiftTypes,
+    shiftTimes: normalizeShiftTimes(normalizedSettings.shiftTimes, resolvedShiftTypes),
+    teamRoles: resolvedTeamRoles,
+    roleCoverage: normalizeRoleCoverage(normalizedSettings.roleCoverage, resolvedTeamRoles, resolvedShiftTypes),
     weekStartsOn: inferWeekStartsOn(normalizedSettings, schedule),
     operatingHours: normalizeOperatingHours(normalizedSettings.operatingHours),
   };
@@ -905,9 +1407,22 @@ const appStateReducer = (state, action) => {
       const employees = state.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
       const teamRoles = getTeamRoles(settings, employees);
       const weekRange = buildWeekRange(state.schedule.startDate, settings.weekStartsOn);
-      const roleRequirements = normalizeRoleRequirements(state.schedule.roleRequirements, teamRoles, shiftTypes, operatingHours);
+      // A changed coverage template re-seeds this week's requirements for any
+      // role that hasn't already snapshotted a record for the week.
+      const coverageChanged = "roleCoverage" in action.payload
+        || ["shiftTypes", "teamRoles", "operatingHours"].some((key) => key in action.payload);
+      const recordsByRole = coverageChanged
+        ? Object.fromEntries(
+            state.schedules
+              .filter((entry) => entry.startDate === state.schedule.startDate)
+              .map((entry) => [entry.role, entry])
+          )
+        : {};
+      const roleRequirements = coverageChanged
+        ? seedRoleRequirements(recordsByRole, settings, teamRoles, shiftTypes, operatingHours)
+        : normalizeRoleRequirements(state.schedule.roleRequirements, teamRoles, shiftTypes, operatingHours);
       const assignments = normalizeAssignments(state.schedule.assignments, employees, teamRoles, shiftTypes, operatingHours);
-      const invalidatesDraft = ["shiftTypes", "teamRoles", "operatingHours", "weekStartsOn"]
+      const invalidatesDraft = ["shiftTypes", "teamRoles", "operatingHours", "weekStartsOn", "roleCoverage"]
         .some((key) => key in action.payload);
       const draftResetFields = invalidatesDraft
         ? { hasUnsavedChanges: true, status: "draft" }
@@ -1107,21 +1622,43 @@ const appStateReducer = (state, action) => {
     case "PUBLISH_SCHEDULE": {
       const teamRoles = getTeamRoles(state.settings, state.employees);
       const rolesWithSignal = getRolesWithSignal(state, teamRoles);
-      const { totalRequired, totalOpen } = computeWeekCoverage(state, teamRoles);
 
-      if (!rolesWithSignal.length || totalRequired === 0 || totalOpen > 0) {
+      if (!rolesWithSignal.length) {
         return state;
       }
 
-      const publishedAt = new Date().toISOString();
+      // With an explicit role list (the §4 confirmation sheet) the caller has
+      // already accepted the open shifts, so publish exactly those roles and
+      // (re)write the rest of the signal roles as held-back drafts. Without a
+      // list — the instant path — only a fully-covered week may go out.
+      const explicitRoles = Array.isArray(action.payload?.roles) ? action.payload.roles : null;
+
+      if (!explicitRoles) {
+        const { totalRequired, totalOpen } = computeWeekCoverage(state, teamRoles);
+
+        if (totalRequired === 0 || totalOpen > 0) {
+          return state;
+        }
+      }
+
+      const publishRoles = rolesWithSignal.filter((role) => (explicitRoles ?? rolesWithSignal).includes(role));
+
+      if (!publishRoles.length) {
+        return state;
+      }
+
+      const now = new Date().toISOString();
       const schedules = rolesWithSignal.reduce((acc, role) => {
         const existingRecord = acc.find((entry) => entry.id === buildScheduleRecordId(state.schedule.startDate, role));
+        const status = publishRoles.includes(role) ? "published" : "draft";
 
         return upsertScheduleRecord(
           acc,
-          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, "published", publishedAt, existingRecord)
+          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, status, now, existingRecord)
         );
       }, state.schedules);
+
+      const summary = summarizeWeekRecords(schedules.filter((entry) => entry.startDate === state.schedule.startDate));
 
       return {
         ...state,
@@ -1129,9 +1666,32 @@ const appStateReducer = (state, action) => {
         schedule: {
           ...state.schedule,
           hasUnsavedChanges: false,
-          status: "published",
-          lastSavedAt: publishedAt,
-          lastPublishedAt: publishedAt,
+          status: summary.status,
+          lastSavedAt: summary.lastSavedAt,
+          lastPublishedAt: summary.lastPublishedAt,
+        },
+      };
+    }
+    // Reverts a just-published week to the exact records it had immediately
+    // before PUBLISH_SCHEDULE (captured by the Scheduler for its undo toast).
+    // Records created by that publish are dropped; the rest go back to draft.
+    case "UNDO_PUBLISH": {
+      const { startDate, records = [] } = action.payload ?? {};
+      const schedules = [
+        ...records,
+        ...state.schedules.filter((entry) => entry.startDate !== startDate),
+      ];
+      const summary = summarizeWeekRecords(records);
+
+      return {
+        ...state,
+        schedules,
+        schedule: {
+          ...state.schedule,
+          hasUnsavedChanges: false,
+          status: summary.status,
+          lastSavedAt: summary.lastSavedAt,
+          lastPublishedAt: summary.lastPublishedAt,
         },
       };
     }
@@ -1139,21 +1699,177 @@ const appStateReducer = (state, action) => {
       const shiftTypes = getShiftTypes(state.settings);
       const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
       const teamRoles = getTeamRoles(state.settings, state.employees);
-      const emptyRequirements = normalizeRequirements(createEmptyRequirements(shiftTypes), shiftTypes, operatingHours);
 
       return {
         ...state,
         schedule: {
           ...state.schedule,
-          roleRequirements: Object.fromEntries(teamRoles.map((role) => [role, emptyRequirements])),
+          // Coverage targets are the Settings template's, not this week's, so
+          // reset re-seeds them rather than zeroing them — it only clears the
+          // week's own work (assignments + notes).
+          roleRequirements: seedRoleRequirements({}, state.settings, teamRoles, shiftTypes, operatingHours),
           assignments: createEmptyAssignments(state.employees, teamRoles, operatingHours),
           notes: "",
           status: "draft",
           hasUnsavedChanges: false,
           lastSavedAt: null,
           lastPublishedAt: null,
+          copiedFrom: null,
+          copyConflicts: [],
         },
       };
+    }
+    // Copy-last-week (§7): seed this week's assignments from the most recent
+    // saved week, then validate every copied assignment against CURRENT
+    // availability / status / role. Coverage targets always come from the
+    // Settings template — template drift is never a conflict. Flagged
+    // assignments stay on the canvas so the manager can see and resolve
+    // them; getLiveCopyConflicts() is what's still outstanding.
+    case "COPY_LAST_WEEK": {
+      const currentStart = state.schedule.startDate;
+      const sourceStart = getPriorScheduledWeekStart(state.schedules, currentStart);
+
+      if (!currentStart || !sourceStart) {
+        return state;
+      }
+
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+      const teamRoles = getTeamRoles(state.settings, state.employees);
+      const sourceByRole = Object.fromEntries(
+        state.schedules.filter((entry) => entry.startDate === sourceStart).map((entry) => [entry.role, entry])
+      );
+      const employeesById = Object.fromEntries(state.employees.map((employee) => [employee.id, employee]));
+
+      const assignments = Object.fromEntries(teamRoles.map((role) => [
+        role,
+        normalizeRoleAssignments(sourceByRole[role]?.assignments ?? {}, state.employees, shiftTypes, operatingHours),
+      ]));
+
+      const copyConflicts = [];
+
+      teamRoles.forEach((role) => {
+        Object.entries(assignments[role]).forEach(([employeeId, byDay]) => {
+          const employee = employeesById[employeeId];
+
+          DAYS.forEach((day) => {
+            (byDay[day] ?? []).forEach((shift) => {
+              if (!employee || employee.status === "archived") {
+                copyConflicts.push({
+                  role, employeeId, day, shift, severity: "hard",
+                  reason: employee ? `${employee.name} is no longer active` : "Employee no longer on the roster",
+                });
+              } else if (!(employee.roles ?? []).includes(role)) {
+                copyConflicts.push({
+                  role, employeeId, day, shift, severity: "hard",
+                  reason: `${employee.name} no longer works ${role}`,
+                });
+              } else if (!(employee.availability?.[day] ?? []).includes(shift)) {
+                copyConflicts.push({
+                  role, employeeId, day, shift, severity: "soft",
+                  reason: `${employee.name} · now off ${day}s`,
+                });
+              }
+            });
+          });
+        });
+      });
+
+      return {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          assignments,
+          roleRequirements: seedRoleRequirements({}, state.settings, teamRoles, shiftTypes, operatingHours),
+          copiedFrom: sourceStart,
+          copyConflicts,
+          status: "draft",
+          hasUnsavedChanges: true,
+        },
+      };
+    }
+    case "RESOLVE_COPY_CONFLICT": {
+      const { role, employeeId, day, shift } = action.payload ?? {};
+      const copyConflicts = (state.schedule.copyConflicts ?? []).map((conflict) =>
+        conflict.role === role
+          && conflict.employeeId === employeeId
+          && conflict.day === day
+          && conflict.shift === shift
+          ? { ...conflict, resolved: true }
+          : conflict
+      );
+
+      return { ...state, schedule: { ...state.schedule, copyConflicts } };
+    }
+    // §6: "Mark called out" logs a durable event AND clears the assignment,
+    // so the slot reads as genuinely open (needs coverage) rather than
+    // quietly still-filled. The "needs coverage" flag is derived from an
+    // unresolved row for the slot — not stored anywhere separately.
+    case "MARK_CALLED_OUT": {
+      const { employeeId, role, day, shift } = action.payload ?? {};
+      const weekStartDate = state.schedule.startDate;
+      const roleBucket = state.schedule.assignments?.[role] ?? {};
+      const current = roleBucket[employeeId]?.[day] ?? [];
+
+      if (!weekStartDate || !current.includes(shift)) {
+        return state;
+      }
+
+      const id = buildCallOutId(weekStartDate, role, day, shift, employeeId);
+      const record = {
+        id,
+        weekStartDate,
+        role,
+        day,
+        shift,
+        employeeId,
+        calledOutAt: new Date().toISOString(),
+        resolvedVia: null,
+        coveredBy: null,
+      };
+      const callOuts = [...state.callOuts.filter((entry) => entry.id !== id), record];
+
+      return {
+        ...state,
+        callOuts,
+        schedule: {
+          ...state.schedule,
+          hasUnsavedChanges: true,
+          status: "draft",
+          assignments: {
+            ...state.schedule.assignments,
+            [role]: {
+              ...roleBucket,
+              [employeeId]: {
+                ...(roleBucket[employeeId] ?? {}),
+                [day]: current.filter((entry) => entry !== shift),
+              },
+            },
+          },
+        },
+      };
+    }
+    // A replacement was assigned to a called-out slot (Find replacement) —
+    // mark every still-open call-out on that slot covered so the flag clears.
+    case "RESOLVE_CALL_OUT": {
+      const { role, day, shift, coveredBy } = action.payload ?? {};
+      const weekStartDate = state.schedule.startDate;
+      const matches = (entry) =>
+        !entry.coveredBy
+        && entry.weekStartDate === weekStartDate
+        && entry.role === role
+        && entry.day === day
+        && entry.shift === shift;
+
+      if (!state.callOuts.some(matches)) {
+        return state;
+      }
+
+      const callOuts = state.callOuts.map((entry) =>
+        matches(entry) ? { ...entry, coveredBy: coveredBy ?? null, resolvedVia: "manual" } : entry
+      );
+
+      return { ...state, callOuts };
     }
     // Replaces settings/employees/schedules wholesale with what was fetched
     // from Supabase for the current org, then rebuilds the live editing
@@ -1161,13 +1877,22 @@ const appStateReducer = (state, action) => {
     // week" on first load) from that data — mirrors what hydrateState used
     // to do from a localStorage blob, just sourced from the server instead.
     case "HYDRATE_FROM_SERVER": {
-      const settings = normalizeSettings(action.payload.settings);
+      const rawSettings = action.payload.settings ?? {};
+      const schedules = action.payload.schedules;
+      // Backfill the coverage template from saved history the first time an
+      // org loads after this change; a template with any demand is left alone.
+      const seededSettings = roleCoverageHasDemand(rawSettings.roleCoverage ?? {})
+        ? rawSettings
+        : { ...rawSettings, roleCoverage: deriveCoverageFromSchedules(schedules) };
+      const settings = normalizeSettings(seededSettings);
       const shiftTypes = getShiftTypes(settings);
       const employees = action.payload.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
-      const schedules = action.payload.schedules;
       const startDate = state.schedule.startDate || getCurrentWeekStartDate(settings.weekStartsOn);
 
-      return applyWeekContext({ ...state, settings, employees, schedules, isHydrated: true }, startDate);
+      return applyWeekContext(
+        { ...state, settings, employees, schedules, callOuts: action.payload.callOuts ?? [], isHydrated: true },
+        startDate,
+      );
     }
     // Applies one incoming Realtime row (another session's edit) into local
     // state. `table`/`row` are already mapped to this file's camelCase shape
@@ -1208,6 +1933,14 @@ const appStateReducer = (state, action) => {
         return applyWeekContext({ ...state, schedules }, state.schedule.startDate);
       }
 
+      if (table === "call_outs") {
+        const callOuts = eventType === "DELETE"
+          ? state.callOuts.filter((entry) => entry.id !== row.id)
+          : [...state.callOuts.filter((entry) => entry.id !== row.id), row];
+
+        return { ...state, callOuts };
+      }
+
       return state;
     }
     default:
@@ -1215,14 +1948,47 @@ const appStateReducer = (state, action) => {
   }
 };
 
+// Best-effort local mirror of the server bundle, per org. It is a crash /
+// offline-reload cache only — not an offline-first write queue — so every
+// access is guarded: private-mode and quota errors must not break the app.
+export const mirrorKey = (orgId) => `shiftsizzle:mirror:${orgId}`;
+
+export const readOrgMirror = (orgId) => {
+  try {
+    const raw = window.localStorage.getItem(mirrorKey(orgId));
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (parsed && parsed.settings && Array.isArray(parsed.employees) && Array.isArray(parsed.schedules)) {
+      return { callOuts: [], ...parsed };
+    }
+  } catch (error) {
+    console.warn('Could not read local schedule mirror', error);
+  }
+
+  return null;
+};
+
+export const writeOrgMirror = (orgId, { settings, employees, schedules, callOuts = [] }) => {
+  try {
+    window.localStorage.setItem(mirrorKey(orgId), JSON.stringify({ settings, employees, schedules, callOuts }));
+  } catch (error) {
+    console.warn('Could not write local schedule mirror', error);
+  }
+};
+
 export const AppStateProvider = ({ children }) => {
   const { membership } = useAuth();
   const orgId = membership?.orgId ?? null;
   const [state, dispatch] = useReducer(appStateReducer, undefined, createDefaultState);
+  // Transient, UI-only. Kept out of the reducer (and the mirror) so setting
+  // it never re-triggers the push effect. 'saved' | 'saving' | 'offline' | 'error'.
+  const [syncStatus, setSyncStatus] = useState('saved');
   const autosaveTimerRef = useRef(null);
   const syncTimerRef = useRef(null);
-  const previousSyncedRef = useRef({ employees: [], schedules: [], settings: null });
+  const previousSyncedRef = useRef({ employees: [], schedules: [], settings: null, callOuts: [] });
   const skipNextSyncRef = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Load this org's data once we know who's signed in, and keep listening
   // for other sessions' changes to it (manager + staff can be editing at
@@ -1234,14 +2000,38 @@ export const AppStateProvider = ({ children }) => {
 
     let isCurrent = true;
 
-    fetchOrgBundle(orgId).then((bundle) => {
-      if (!isCurrent) {
-        return;
-      }
+    fetchOrgBundle(orgId)
+      .then((bundle) => {
+        if (!isCurrent) {
+          return;
+        }
 
-      skipNextSyncRef.current = true;
-      dispatch({ type: "HYDRATE_FROM_SERVER", payload: bundle });
-    });
+        skipNextSyncRef.current = true;
+        setSyncStatus('saved');
+        dispatch({ type: "HYDRATE_FROM_SERVER", payload: bundle });
+      })
+      .catch((error) => {
+        if (!isCurrent) {
+          return;
+        }
+
+        // Server unreachable: fall back to the last local mirror so the app
+        // still opens, and flag that edits aren't syncing yet.
+        const mirrored = readOrgMirror(orgId);
+
+        if (mirrored) {
+          skipNextSyncRef.current = true;
+          setSyncStatus('offline');
+          dispatch({ type: "HYDRATE_FROM_SERVER", payload: mirrored });
+        } else {
+          // No server, no cache: still mark the app hydrated so it renders
+          // its empty/first-run state instead of hanging on the loader.
+          setSyncStatus('error');
+          console.error('Failed to load org bundle from Supabase', error);
+          skipNextSyncRef.current = true;
+          dispatch({ type: "HYDRATE_FROM_SERVER", payload: { settings: {}, employees: [], schedules: [] } });
+        }
+      });
 
     const unsubscribe = subscribeToOrgChanges(orgId, (change) => {
       skipNextSyncRef.current = true;
@@ -1254,11 +2044,78 @@ export const AppStateProvider = ({ children }) => {
     };
   }, [orgId]);
 
+  // Diffs the current bundle against what was last confirmed on the server
+  // and writes only what changed. `force` re-sends everything (used on
+  // reconnect). Resolves after every write settles; on any failure the
+  // "last synced" marker is NOT advanced, so the next run retries.
+  const flushToServer = useCallback(async (force = false) => {
+    if (!orgId) {
+      return;
+    }
+
+    const { employees, schedules, settings, callOuts } = stateRef.current;
+    const previous = force
+      ? { employees: [], schedules: [], settings: null, callOuts: [] }
+      : previousSyncedRef.current;
+
+    setSyncStatus('saving');
+
+    const pending = [];
+
+    employees.forEach((employee) => {
+      const { availability, ...core } = employee;
+      const previousEmployee = previous.employees.find((entry) => entry.id === employee.id);
+      const previousCore = previousEmployee ? { ...previousEmployee, availability: undefined } : null;
+
+      if (!previousEmployee || JSON.stringify(previousCore) !== JSON.stringify({ ...core, availability: undefined })) {
+        pending.push(upsertEmployeeRow(orgId, employee));
+      }
+
+      if (!previousEmployee || JSON.stringify(previousEmployee.availability) !== JSON.stringify(availability)) {
+        pending.push(upsertAvailabilityRow(orgId, employee.id, availability));
+      }
+    });
+
+    schedules.forEach((record) => {
+      const previousRecord = previous.schedules.find((entry) => entry.id === record.id);
+
+      if (!previousRecord || JSON.stringify(previousRecord) !== JSON.stringify(record)) {
+        pending.push(upsertScheduleRecordRow(orgId, record));
+      }
+    });
+
+    (callOuts ?? []).forEach((callOut) => {
+      const previousCallOut = (previous.callOuts ?? []).find((entry) => entry.id === callOut.id);
+
+      if (!previousCallOut || JSON.stringify(previousCallOut) !== JSON.stringify(callOut)) {
+        pending.push(upsertCallOutRow(orgId, callOut));
+      }
+    });
+
+    if (!previous.settings || JSON.stringify(previous.settings) !== JSON.stringify(settings)) {
+      pending.push(updateOrganizationSettings(orgId, settings));
+    }
+
+    if (pending.length === 0) {
+      setSyncStatus('saved');
+      return;
+    }
+
+    const failed = (await Promise.all(pending)).some(Boolean);
+
+    if (failed) {
+      setSyncStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error');
+      return;
+    }
+
+    previousSyncedRef.current = { employees, schedules, settings, callOuts };
+    setSyncStatus('saved');
+  }, [orgId]);
+
   // Push local edits to Supabase — debounced so a burst of edits (e.g.
   // toggling several assignment cells) becomes one write per row, not one
   // per click. Skipped for the state change right after a server
-  // hydrate/merge, since that data just came FROM the server and re-sending
-  // it would just be a wasted round trip.
+  // hydrate/merge, since that data just came FROM the server.
   useEffect(() => {
     if (!orgId) {
       return undefined;
@@ -1266,46 +2123,43 @@ export const AppStateProvider = ({ children }) => {
 
     if (skipNextSyncRef.current) {
       skipNextSyncRef.current = false;
-      previousSyncedRef.current = { employees: state.employees, schedules: state.schedules, settings: state.settings };
+      previousSyncedRef.current = {
+        employees: state.employees,
+        schedules: state.schedules,
+        settings: state.settings,
+        callOuts: state.callOuts,
+      };
       return undefined;
     }
 
     window.clearTimeout(syncTimerRef.current);
-
-    syncTimerRef.current = window.setTimeout(() => {
-      const previous = previousSyncedRef.current;
-
-      state.employees.forEach((employee) => {
-        const { availability, ...core } = employee;
-        const previousEmployee = previous.employees.find((entry) => entry.id === employee.id);
-        const previousCore = previousEmployee ? { ...previousEmployee, availability: undefined } : null;
-
-        if (!previousEmployee || JSON.stringify(previousCore) !== JSON.stringify({ ...core, availability: undefined })) {
-          upsertEmployeeRow(orgId, employee);
-        }
-
-        if (!previousEmployee || JSON.stringify(previousEmployee.availability) !== JSON.stringify(availability)) {
-          upsertAvailabilityRow(orgId, employee.id, availability);
-        }
-      });
-
-      state.schedules.forEach((record) => {
-        const previousRecord = previous.schedules.find((entry) => entry.id === record.id);
-
-        if (!previousRecord || JSON.stringify(previousRecord) !== JSON.stringify(record)) {
-          upsertScheduleRecordRow(orgId, record);
-        }
-      });
-
-      if (!previous.settings || JSON.stringify(previous.settings) !== JSON.stringify(state.settings)) {
-        updateOrganizationSettings(orgId, state.settings);
-      }
-
-      previousSyncedRef.current = { employees: state.employees, schedules: state.schedules, settings: state.settings };
-    }, SYNC_DEBOUNCE_MS);
+    syncTimerRef.current = window.setTimeout(() => flushToServer(false), SYNC_DEBOUNCE_MS);
 
     return () => window.clearTimeout(syncTimerRef.current);
-  }, [state, orgId]);
+  }, [state, orgId, flushToServer]);
+
+  // Write-through local mirror: every confirmed bundle is cached so a later
+  // reload survives the server being unreachable. Best-effort only.
+  useEffect(() => {
+    if (!orgId || !state.isHydrated) {
+      return;
+    }
+
+    writeOrgMirror(orgId, state);
+  }, [orgId, state.isHydrated, state.settings, state.employees, state.schedules, state.callOuts]);
+
+  // Retry the full bundle as soon as the browser reports a connection back.
+  useEffect(() => {
+    if (!orgId || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const onOnline = () => flushToServer(true);
+
+    window.addEventListener('online', onOnline);
+
+    return () => window.removeEventListener('online', onOnline);
+  }, [orgId, flushToServer]);
 
   // Silent autosave: after a short idle window, commit the in-progress week
   // into schedules[] (the same records Schedule history reads) so work is
@@ -1324,7 +2178,7 @@ export const AppStateProvider = ({ children }) => {
     return () => window.clearTimeout(autosaveTimerRef.current);
   }, [state.schedule]);
 
-  const value = useMemo(() => ({ state, dispatch }), [state]);
+  const value = useMemo(() => ({ state, dispatch, syncStatus }), [state, syncStatus]);
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 };

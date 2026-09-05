@@ -52,20 +52,16 @@ const emptyAssignments = () => ({
 
 const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] };
 
-const getRoleSection = (role) => screen
-  .getByText(role, { selector: '.scheduler__role-section-header-left strong' })
-  .closest('.scheduler__role-section');
+// The shift card for a role on the day currently shown in the Day builder.
+// Tests using more than one shift type would pass a label too.
+const getShiftCard = (role) => screen
+  .getByText(role, { selector: '.scheduler__shift-card-title strong' })
+  .closest('.scheduler__shift-card');
 
-const getDayCard = (day) => screen.getByRole('heading', { name: day, level: 4 }).closest('.scheduler__requirements-card');
+const getDayTab = (day) => screen.getByRole('tab', { name: new RegExp(`^${day}(\\s|$)`) });
 
-// Renders Scheduler wrapped in the same AuthProvider > AppStateProvider tree
-// the real app uses, seeding org data first and waiting for hydration to
-// finish before Scheduler itself ever mounts. Scheduler reads deep-link
-// query params in a mount-only effect, so it must not mount until
-// settings/employees are already loaded — otherwise that effect fires
-// against pre-hydration defaults and never gets a second chance (mirrors
-// how, before the Supabase migration, that data was already available
-// synchronously from localStorage by the time Scheduler first mounted).
+const openAddPanel = (card) => fireEvent.click(within(card).getByRole('button', { name: 'Add person' }));
+
 const renderScheduler = async (seed = {}) => {
   seedFakeSupabase(supabase, seed);
 
@@ -79,14 +75,19 @@ const renderScheduler = async (seed = {}) => {
     </AuthProvider>
   );
 
-  await screen.findByLabelText('Week start date');
+  // The action bar's Publish button is present as soon as a configured org
+  // has hydrated onto a week.
+  await screen.findByRole('button', { name: 'Publish week' });
 };
 
-// Selects a week on the already-rendered Scheduler via its own "Week start
-// date" control — this is the real UI a manager uses to jump between
-// weeks, so tests drive it the same way instead of dispatching SELECT_WEEK
-// directly.
+// Navigate to a specific week via the action-bar week stepper's sheet.
 const selectWeek = (startDate) => {
+  const changeWeek = screen.queryByRole('button', { name: /^Change week/ });
+
+  if (changeWeek) {
+    fireEvent.click(changeWeek);
+  }
+
   fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: startDate } });
 };
 
@@ -102,23 +103,15 @@ afterEach(() => {
 });
 
 describe('Scheduler view', () => {
-  it('renders the scheduler page before a week is selected', async () => {
+  it('shows the first-run setup card when no scheduling week is configured', async () => {
     await renderView(Scheduler);
 
-    expect(screen.getByText('Build Schedule')).toBeInTheDocument();
-    expect(screen.getAllByText('Choose which day your schedules start on, then pick a start date below.').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('No week selected yet');
+    expect(screen.getByRole('heading', { name: 'Build Schedule' })).toBeInTheDocument();
+    expect(screen.getByText('Which day does your week start?')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Week starts on' })).toBeInTheDocument();
     expect(screen.getByLabelText('Week start date')).toBeDisabled();
-    const setupNotice = screen.getByLabelText('Set scheduling week start day');
-
-    expect(within(setupNotice).getByLabelText('Week starts on')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publish week' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Reset week' })).not.toBeInTheDocument();
-    const statusPanel = screen.getByLabelText('Schedule status panel');
-
-    expect(within(statusPanel).getByText('Draft schedule')).toBeInTheDocument();
-    expect(within(statusPanel).getByText('Set the week to start planning.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Change week/ })).not.toBeInTheDocument();
   });
 
   it('hydrates week and role from deep-link query params, activating the matching role tab', async () => {
@@ -129,12 +122,12 @@ describe('Scheduler view', () => {
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
     });
 
-    expect(screen.getByLabelText('Week start date')).toHaveValue('2026-05-25');
+    expect(screen.getByRole('button', { name: /Change week — May 25/ })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^Manager/ })).toHaveAttribute('aria-selected', 'true');
     expect(window.location.search).toBe('');
   });
 
-  it('switching weeks with unsaved changes autosaves the previous week and switches with no confirm dialog', async () => {
+  it('switching weeks shows no confirm dialog and reloads the target week\'s shift cards', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
@@ -150,28 +143,22 @@ describe('Scheduler view', () => {
     });
 
     selectWeek('2026-05-24');
+    expect(screen.getByRole('button', { name: /Change week — May 24/ })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: '2026-06-07' } });
-
+    selectWeek('2026-06-07');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Week start date')).toHaveValue('2026-06-07');
-    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('Jun 7 - Jun 13, 2026');
+    expect(screen.getByRole('button', { name: /Change week — Jun 7/ })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Week start date'), { target: { value: '2026-05-24' } });
-
+    selectWeek('2026-05-24');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Active editing context')).toHaveTextContent('May 24 - May 30, 2026');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    expect(getDayCard('Monday').querySelector('input')).toHaveValue(1);
+    expect(screen.getByRole('button', { name: /Change week — May 24/ })).toBeInTheDocument();
+    expect(within(getShiftCard('Manager')).getByText('0/1')).toBeInTheDocument();
   });
 
-  it('resets the whole week behind a confirm dialog', async () => {
+  it('reset clears the week\'s assignments behind a confirm dialog, keeping the coverage target', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [
-        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-        { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
-      ],
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
       schedules: [{
         weekLabel: 'May 24 - May 30, 2026',
         startDate: '2026-05-24',
@@ -180,35 +167,36 @@ describe('Scheduler view', () => {
         status: 'draft',
         requirements: grid(1),
         assignments: { 1: emptyAssignments() },
-      }, {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(2),
-        assignments: { 2: emptyAssignments() },
       }],
     });
 
     selectWeek('2026-05-24');
+    fireEvent.click(getDayTab('Monday'));
 
-    const trigger = screen.getByRole('button', { name: 'Reset week' });
+    const card = getShiftCard('Manager');
+    openAddPanel(card);
+    fireEvent.click(within(card).getByRole('button', { name: /Jen Ray/ }));
+    expect(within(getShiftCard('Manager')).getByText('1/1')).toBeInTheDocument();
 
-    fireEvent.click(trigger);
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const openReset = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Reset week' }));
+    };
+
+    openReset();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    fireEvent.click(trigger);
+    openReset();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset week' }));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    expect(getDayCard('Monday').querySelector('input')).toHaveValue(0);
+    // Assignment cleared, but the target still reads 0/1 (not 0/0).
+    expect(within(getShiftCard('Manager')).getByText('0/1')).toBeInTheDocument();
+    expect(within(getShiftCard('Manager')).getByText('No one assigned')).toBeInTheDocument();
   });
 
-  it('hides closed days from scheduling controls', async () => {
+  it('shows only operating days in the day tab strip', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
@@ -224,13 +212,13 @@ describe('Scheduler view', () => {
     });
 
     selectWeek('2026-05-24');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
-    expect(screen.queryByRole('heading', { name: 'Sunday', level: 4 })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Monday', level: 4 })).toBeInTheDocument();
+    expect(getDayTab('Monday')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^Sunday/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^Tuesday/ })).not.toBeInTheDocument();
   });
 
-  it('blocks publishing until coverage is filled and then records the publish state', async () => {
+  it('an incomplete week routes publish through the confirmation sheet; a full week publishes instantly', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
@@ -246,23 +234,52 @@ describe('Scheduler view', () => {
     });
 
     selectWeek('2026-05-24');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
-    const publishButton = screen.getByRole('button', { name: 'Publish week' });
+    // Open shift -> the sheet, with the incomplete role held back.
+    fireEvent.click(screen.getByRole('button', { name: 'Publish week' }));
+    const sheet = screen.getByRole('dialog');
+    expect(sheet).toHaveTextContent('0 of 1 shifts filled');
+    expect(within(sheet).getByRole('checkbox', { name: /Manager/ })).not.toBeChecked();
+    expect(within(sheet).getByRole('button', { name: 'Publish selected' })).toBeDisabled();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Go back and fix' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    expect(publishButton).toBeDisabled();
+    // Fill it, then publish with no filter -> instant, no sheet, undo toast.
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-fill' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish week' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Generate draft' }));
-
-    expect(publishButton).toBeEnabled();
-
-    fireEvent.click(publishButton);
-
-    expect(screen.getByText('Published schedule')).toBeInTheDocument();
-    expect(screen.getByText(/Last published /)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('PUBLISHED')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
   });
 
-  it('enables draft generation as soon as coverage targets are added', async () => {
+  it('the undo toast reverts a just-published week to draft', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish week' }));
+    expect(screen.getByText('PUBLISHED')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(screen.getByText('DRAFT')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  });
+
+  it('disables auto-fill when no shift has a coverage target', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
@@ -278,44 +295,11 @@ describe('Scheduler view', () => {
     });
 
     selectWeek('2026-05-24');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
 
-    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeDisabled();
-
-    const input = getDayCard('Monday').querySelector('input');
-
-    fireEvent.change(input, { target: { value: '2' } });
-
-    expect(screen.getByRole('button', { name: 'Generate draft' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Auto-fill' })).toBeDisabled();
   });
 
-  it('applies one day\'s coverage targets to every day via "Apply to all days"', async () => {
-    await renderScheduler({
-      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoDayOperatingHours },
-      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 1: emptyAssignments() },
-      }],
-    });
-
-    selectWeek('2026-05-24');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-
-    const mondayCard = getDayCard('Monday');
-
-    fireEvent.change(mondayCard.querySelector('input'), { target: { value: '3' } });
-    fireEvent.click(within(mondayCard).getByRole('button', { name: 'Apply to all days' }));
-
-    expect(getDayCard('Tuesday').querySelector('input')).toHaveValue(3);
-  });
-
-  it('disables extra manual assignment buttons once an employee reaches the weekly shift cap', async () => {
+  it('candidate panel disables an employee already at the weekly shift cap', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 1, status: 'active', availability: availableEveryDay }],
@@ -325,83 +309,61 @@ describe('Scheduler view', () => {
         endDate: '2026-05-30',
         role: 'Manager',
         status: 'draft',
-        requirements: grid(0),
+        requirements: { ...grid(1), Tuesday: { Open: 1 } },
         assignments: { 1: emptyAssignments() },
       }],
     });
 
     selectWeek('2026-05-24');
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
+    fireEvent.click(getDayTab('Monday'));
 
-    const jenCard = screen.getAllByText('Jen Ray').find((element) => element.tagName === 'STRONG').closest('.scheduler__employee-card');
-    const mondayRow = within(jenCard).getByText('Mon').closest('.scheduler__day-row');
-    const tuesdayRow = within(jenCard).getByText('Tue').closest('.scheduler__day-row');
+    const mondayCard = getShiftCard('Manager');
+    openAddPanel(mondayCard);
+    fireEvent.click(within(mondayCard).getByRole('button', { name: /Jen Ray/ }));
+    expect(within(getShiftCard('Manager')).getByText('1/1')).toBeInTheDocument();
 
-    fireEvent.click(within(mondayRow).getByRole('button', { name: 'Open' }));
+    fireEvent.click(getDayTab('Tuesday'));
+    const tuesdayCard = getShiftCard('Manager');
+    openAddPanel(tuesdayCard);
+    const jenCandidate = within(tuesdayCard).getByRole('button', { name: /Jen Ray/ });
 
-    expect(within(jenCard).getByText('1/1 assigned')).toBeInTheDocument();
-    expect(within(tuesdayRow).getByRole('button', { name: 'Open' })).toBeDisabled();
+    expect(jenCandidate).toBeDisabled();
+    expect(jenCandidate).toHaveTextContent('At weekly shift limit');
   });
 
-  it('switching role tabs does not reset or discard unsaved edits in other roles', async () => {
+  it('keeps assignments made under one role when the role filter switches away and back', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
         { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
         { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 1: emptyAssignments() },
-      }, {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 2: emptyAssignments() },
-      }],
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'draft', requirements: grid(1), assignments: { 1: emptyAssignments() },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+          status: 'draft', requirements: grid(1), assignments: { 2: emptyAssignments() },
+        },
+      ],
     });
 
     selectWeek('2026-05-24');
-
+    fireEvent.click(getDayTab('Monday'));
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    fireEvent.change(getDayCard('Monday').querySelector('input'), { target: { value: '3' } });
+
+    const managerCard = getShiftCard('Manager');
+    openAddPanel(managerCard);
+    fireEvent.click(within(managerCard).getByRole('button', { name: /Jen Ray/ }));
+    expect(within(getShiftCard('Manager')).getByText('1/1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: /^Server/ }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    expect(getDayCard('Monday').querySelector('input')).toHaveValue(3);
-  });
-
-  it('shows "No demand set" instead of "Covered" for a role with no coverage targets entered', async () => {
-    await renderScheduler({
-      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
-      employees: [{ id: '1', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 1: emptyAssignments() },
-      }],
-    });
-
-    selectWeek('2026-05-24');
-
-    const serverSection = getRoleSection('Server');
-
-    expect(within(serverSection).getByText('No demand set')).toBeInTheDocument();
-    expect(within(serverSection).queryByText('Covered')).not.toBeInTheDocument();
+    expect(within(getShiftCard('Manager')).getByText('1/1')).toBeInTheDocument();
   });
 
   it('the checklist and "All roles" tab total open slots across every role, not just the active tab', async () => {
@@ -411,111 +373,94 @@ describe('Scheduler view', () => {
         { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
         { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(1),
-        assignments: { 1: emptyAssignments() },
-      }, {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(2),
-        assignments: { 2: emptyAssignments() },
-      }],
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'draft', requirements: grid(1), assignments: { 1: emptyAssignments() },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+          status: 'draft', requirements: grid(2), assignments: { 2: emptyAssignments() },
+        },
+      ],
     });
 
     selectWeek('2026-05-24');
 
-    expect(screen.getByText('Coverage: 3 open slots')).toBeInTheDocument();
+    expect(screen.getByText(/0 \/ 3 filled/)).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^All roles/ })).toHaveTextContent('3');
   });
 
-  it('publish is blocked while any role with demand still has an open slot, even if the active tab\'s role is fully covered', async () => {
+  it('the publish sheet pre-checks complete roles and holds back incomplete ones', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
         { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
         { id: '2', name: 'Ava Cole', roles: ['Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(1),
-        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
-      }, {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(1),
-        assignments: { 2: emptyAssignments() },
-      }],
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'draft', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+          status: 'draft', requirements: grid(1), assignments: { 2: emptyAssignments() },
+        },
+      ],
     });
 
     selectWeek('2026-05-24');
 
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    expect(within(getRoleSection('Manager')).getByText('Covered')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish week' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: /^Server/ })).toHaveTextContent('1');
+    expect(screen.getByRole('tab', { name: /^Manager/ })).not.toHaveTextContent('1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish week' }));
+    const sheet = screen.getByRole('dialog');
+
+    expect(sheet).toHaveTextContent('1 of 2 shifts filled');
+    expect(within(sheet).getByRole('checkbox', { name: /Manager/ })).toBeChecked();
+    expect(within(sheet).getByRole('checkbox', { name: /Server/ })).not.toBeChecked();
+    expect(within(sheet).getByRole('button', { name: 'Publish selected' })).toBeEnabled();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Publish selected' }));
+
+    // Manager published, Server held back as draft -> week status stays draft.
+    expect(screen.getByText('DRAFT')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
   });
 
-  it('blocks double-booking a shift under a different role and shows the cross-role assigned total on the employee card', async () => {
+  it('candidate panel blocks someone already working that day+shift under another role', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [
         { id: '3', name: 'Kayla Brooks', roles: ['Manager', 'Server'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
       ],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 3: { ...emptyAssignments(), Monday: ['Open'] } },
-      }, {
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Server',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 3: emptyAssignments() },
-      }],
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'draft', requirements: grid(1), assignments: { 3: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+          status: 'draft', requirements: grid(1), assignments: { 3: emptyAssignments() },
+        },
+      ],
     });
 
     selectWeek('2026-05-24');
-
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    const kaylaCardManagerView = screen.getByText('Kayla Brooks').closest('.scheduler__employee-card');
-
-    // Cross-role total (1 shift under Manager, 0 under Server) shows here...
-    expect(within(kaylaCardManagerView).getByText('1/2 assigned')).toBeInTheDocument();
-
+    fireEvent.click(getDayTab('Monday'));
     fireEvent.click(screen.getByRole('tab', { name: /^Server/ }));
-    const kaylaCardServerView = screen.getByText('Kayla Brooks').closest('.scheduler__employee-card');
 
-    // ...and here too, even though Server's own bucket is still empty.
-    expect(within(kaylaCardServerView).getByText('1/2 assigned')).toBeInTheDocument();
+    const serverCard = getShiftCard('Server');
+    openAddPanel(serverCard);
+    const kaylaCandidate = within(serverCard).getByRole('button', { name: /Kayla Brooks/ });
 
-    const mondayRow = within(kaylaCardServerView).getByText('Mon').closest('.scheduler__day-row');
-    const openButton = within(mondayRow).getByRole('button', { name: 'Open' });
-
-    expect(openButton).toBeDisabled();
-    expect(openButton).toHaveAttribute('title', expect.stringContaining('already working Open on Monday under another role'));
+    expect(kaylaCandidate).toBeDisabled();
+    expect(kaylaCandidate).toHaveTextContent('Already on another shift');
   });
 
-  it('autosaves an unsaved edit without clicking "Save draft"', async () => {
+  it('autosaves an assignment without clicking "Save draft"', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
@@ -525,28 +470,251 @@ describe('Scheduler view', () => {
         endDate: '2026-05-30',
         role: 'Manager',
         status: 'draft',
-        requirements: grid(0),
+        requirements: grid(1),
         assignments: { 1: emptyAssignments() },
       }],
     });
 
     selectWeek('2026-05-24');
 
-    // Switch to fake timers only after hydration/week-selection above have
-    // already settled, so RTL's polling isn't stuck waiting on a clock
-    // that never advances.
     vi.useFakeTimers();
 
-    fireEvent.click(screen.getByRole('tab', { name: /^Manager/ }));
-    fireEvent.change(getDayCard('Monday').querySelector('input'), { target: { value: '2' } });
+    fireEvent.click(getDayTab('Monday'));
+    const card = getShiftCard('Manager');
+    openAddPanel(card);
+    fireEvent.click(within(card).getByRole('button', { name: /Jen Ray/ }));
 
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    // Edit is pending — the passive sync line shows it, no button was clicked.
+    expect(screen.getByText(/·\s*Saving…/)).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(2000);
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
     });
 
-    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    expect(screen.getByText(/Autosaved/)).toBeInTheDocument();
+    expect(screen.queryByText(/·\s*Saving…/)).not.toBeInTheDocument();
+    expect(screen.getByText(/·\s*Saved/)).toBeInTheDocument();
+  });
+
+  it('week overview grid shows three-state coverage and a cell tap drops into the day builder for that role', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoDayOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Sam Fox', roles: ['Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+      ],
+      schedules: [
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'draft',
+          requirements: { ...grid(0), Monday: { Open: 1 }, Tuesday: { Open: 1 } },
+          assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+          status: 'draft',
+          requirements: { ...grid(0), Monday: { Open: 2 } },
+          assignments: { 2: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+      ],
+    });
+
+    selectWeek('2026-05-24');
+    fireEvent.click(screen.getByRole('tab', { name: 'Week overview' }));
+
+    expect(screen.getByRole('button', { name: /Manager, Monday: 1 of 1 filled — Fully covered/ })).toBeInTheDocument();
+    const managerTuesday = screen.getByRole('button', { name: /Manager, Tuesday: 0 of 1 filled — No one assigned/ });
+    expect(managerTuesday).toHaveClass('scheduler__overview-cell', 'is-none');
+    expect(screen.getByRole('button', { name: /Server, Monday: 1 of 2 filled — Short-staffed/ })).toHaveClass('is-partial');
+
+    fireEvent.click(managerTuesday);
+
+    expect(screen.getByRole('tab', { name: 'Day builder' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^Manager/ })).toHaveAttribute('aria-selected', 'true');
+    expect(getDayTab('Tuesday')).toHaveAttribute('aria-selected', 'true');
+    expect(within(getShiftCard('Manager')).getByText('0/1')).toBeInTheDocument();
+  });
+
+  it('a single-role overview cell tap opens the candidate panel straight on the shift being fixed', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Sam Fox', roles: ['Server'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+      ],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Server',
+        status: 'draft', requirements: grid(2), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+    fireEvent.click(screen.getByRole('tab', { name: /^Server/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Week overview' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Open, Monday: 1 of 2 filled — Short-staffed/ }));
+
+    expect(screen.getByRole('tab', { name: 'Day builder' })).toHaveAttribute('aria-selected', 'true');
+    const serverCard = getShiftCard('Server');
+    expect(within(serverCard).getByLabelText(/Add someone to Server/)).toBeInTheDocument();
+    expect(within(serverCard).getByRole('button', { name: /Sam Fox/ })).toBeEnabled();
+  });
+
+  it('a fresh week offers "Copy last week" / "Start fresh"; Start fresh dismisses it', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+        status: 'published', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-06-07');
+
+    expect(screen.getByRole('button', { name: 'Copy last week' })).toBeInTheDocument();
+    // The builder is not shown until a choice is made.
+    expect(screen.queryByRole('tab', { name: 'Day builder' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start fresh' }));
+
+    expect(screen.queryByRole('button', { name: 'Copy last week' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Day builder' })).toBeInTheDocument();
+  });
+
+  it('"Copy last week" surfaces a stale assignment as a conflict, and "Keep anyway" resolves it', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{
+        id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active',
+        availability: { ...availableEveryDay, Monday: [] }, // now off Mondays
+      }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+        status: 'published', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-06-07');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy last week' }));
+
+    expect(screen.getByText(/Copied last week · 1 conflict to review/)).toBeInTheDocument();
+
+    fireEvent.click(getDayTab('Monday'));
+    const card = getShiftCard('Manager');
+    expect(within(card).getByText(/now off Mondays/)).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Replace' })).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Keep anyway' }));
+
+    expect(screen.getByText('Copied from last week')).toBeInTheDocument();
+    expect(screen.queryByText(/conflict to review/)).not.toBeInTheDocument();
+  });
+
+  it('the chip menu marks a call-out; the shift then needs coverage and "Find replacement" resolves it', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+        { id: '2', name: 'Ada Poe', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+      ],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+        status: 'published', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+    fireEvent.click(getDayTab('Monday'));
+
+    let card = getShiftCard('Manager');
+    expect(within(card).getByText('Jen Ray')).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: /Actions for Jen Ray/ }));
+    fireEvent.click(within(card).getByRole('menuitem', { name: 'Mark called out' }));
+
+    card = getShiftCard('Manager');
+    expect(within(card).getByText(/Jen Ray called out — needs coverage/)).toBeInTheDocument();
+    expect(within(card).getByText('0/1')).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Find replacement' }));
+    fireEvent.click(within(getShiftCard('Manager')).getByRole('button', { name: /Ada Poe/ }));
+
+    card = getShiftCard('Manager');
+    expect(within(card).queryByText(/needs coverage/)).not.toBeInTheDocument();
+    expect(within(card).getByText('Ada Poe')).toBeInTheDocument();
+    expect(within(card).getByText('1/1')).toBeInTheDocument();
+  });
+
+  it('the action-bar stepper walks one week at a time', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+        status: 'draft', requirements: grid(1), assignments: { 1: emptyAssignments() },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+    expect(screen.getByRole('button', { name: /Change week — May 24/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(screen.getByRole('button', { name: /Change week — May 31/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    expect(screen.getByRole('button', { name: /Change week — May 17/ })).toBeInTheDocument();
+  });
+
+  it('the "Jump to a week" sheet lists weeks with their saved status', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-27T12:00:00'));
+
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 17 - May 23, 2026', startDate: '2026-05-17', endDate: '2026-05-23', role: 'Manager',
+        status: 'published', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Change week/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Jump to a week' });
+
+    const lastWeek = within(sheet).getByRole('button', { name: /May 17/ });
+    expect(lastWeek).toHaveTextContent('Last week');
+    expect(lastWeek).toHaveTextContent('Published');
+    expect(within(sheet).getByRole('button', { name: /Change week|May 24|This week/ })).toBeInTheDocument();
+  });
+
+  it('first run: picking a week-start day drops onto the current week', async () => {
+    await renderView(Scheduler);
+
+    expect(screen.getByText('Which day does your week start?')).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole('group', { name: 'Week starts on' })).getByRole('button', { name: 'Sun' }));
+
+    expect(await screen.findByRole('button', { name: 'Publish week' })).toBeInTheDocument();
+    expect(screen.queryByText('Which day does your week start?')).not.toBeInTheDocument();
+  });
+
+  it('Manager notes live in the overflow menu, not on the page', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+        status: 'draft', requirements: grid(1), assignments: { 1: emptyAssignments() },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+    expect(screen.queryByPlaceholderText(/Notes for this week/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Manager notes' }));
+
+    expect(screen.getByPlaceholderText(/Notes for this week/)).toBeInTheDocument();
   });
 });

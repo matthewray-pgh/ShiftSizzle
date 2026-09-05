@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 import { ContentPanel } from '../../Components';
-import { computeWeekReviewTotals, DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getWeekView, useAppState } from '../../state/AppState';
+import { computeWeekReviewTotals, DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getUnresolvedScheduleItems, getWeekView, useAppState } from '../../state/AppState';
 import { useAuth } from '../../state/AuthState';
 
 import './Dashboard.scss';
@@ -388,6 +389,40 @@ export const Dashboard = () => {
 
   const summaryCards = isManager ? managerCards : staffCards;
 
+  // Outstanding schedule work (§5), grouped by week for the resume card.
+  // Each "Resume schedule" link deep-links to the exact week + role (+ the
+  // first day with a gap) that needs attention.
+  const resumeWeeks = useMemo(() => {
+    if (!isManager) {
+      return [];
+    }
+
+    const byWeek = new Map();
+
+    getUnresolvedScheduleItems(state).forEach((item) => {
+      if (!byWeek.has(item.startDate)) {
+        byWeek.set(item.startDate, { startDate: item.startDate, weekLabel: item.weekLabel, items: [] });
+      }
+
+      byWeek.get(item.startDate).items.push(item);
+    });
+
+    return [...byWeek.values()];
+  }, [state, isManager]);
+
+  const resumeCount = resumeWeeks.reduce((total, week) => total + week.items.length, 0);
+
+  const buildResumeHref = (week) => {
+    const lead = week.items.find((item) => item.openSlots > 0) ?? week.items[0];
+    const params = new URLSearchParams({ weekStart: week.startDate, role: lead.role });
+
+    if (lead.firstGapDay) {
+      params.set('day', lead.firstGapDay);
+    }
+
+    return `/schedule/build?${params.toString()}`;
+  };
+
   return (
     <div className="dashboard">
       <div className="dashboard__top">
@@ -420,6 +455,36 @@ export const Dashboard = () => {
           ))}
         </div>
       </div>
+
+      {isManager && resumeWeeks.length > 0 && (
+        <ContentPanel className="dashboard__resume">
+          <div className="dashboard__section-heading">
+            <h2>Finish your schedule</h2>
+            <span className="dashboard__resume-count">
+              {resumeCount} {resumeCount === 1 ? 'item' : 'items'} to resolve
+            </span>
+          </div>
+          <ul className="dashboard__resume-list">
+            {resumeWeeks.map((week) => (
+              <li key={week.startDate} className="dashboard__resume-row">
+                <div className="dashboard__resume-copy">
+                  <strong>{week.weekLabel || week.startDate}</strong>
+                  <span>
+                    {week.items
+                      .map((item) => (item.openSlots > 0
+                        ? `${item.role} · ${item.openSlots} open`
+                        : `${item.role} · not published`))
+                      .join('  •  ')}
+                  </span>
+                </div>
+                <Link className="button-outline dashboard__resume-action" to={buildResumeHref(week)}>
+                  Resume schedule
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </ContentPanel>
+      )}
 
       <ContentPanel>
         <div className="dashboard__section-heading">

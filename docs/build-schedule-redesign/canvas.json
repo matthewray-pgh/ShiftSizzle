@@ -1,0 +1,23 @@
+{
+  "pages": [
+    { "id": "mobile", "name": "Mobile flow" },
+    { "id": "desktop", "name": "Desktop" }
+  ],
+  "artboards": [
+    { "file": "FirstRun.dc.html", "x": 0, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "First run / setup" },
+    { "file": "WeekPicker.dc.html", "x": 490, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Jump to a week" },
+    { "file": "Main.dc.html", "x": 980, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Day builder" },
+    { "file": "Candidates.dc.html", "x": 1470, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Add person" },
+    { "file": "CallOut.dc.html", "x": 1960, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Call-out + copy conflict" },
+    { "file": "Week.dc.html", "x": 2450, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Week overview" },
+    { "file": "NewWeek.dc.html", "x": 2940, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "New week" },
+    { "file": "Publish.dc.html", "x": 3430, "y": 0, "w": 390, "h": 900, "page": "mobile", "title": "Publish sheet" },
+    { "file": "Desktop.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "desktop", "title": "Day builder — desktop" }
+  ],
+  "annotations": [
+    { "id": "intro", "x": 0, "y": -300, "w": 900, "page": "mobile", "text": "Build Schedule — redesign\n\nRead left → right: First run → Jump to a week → the Day builder (landing) → its states → New week → Publish.\n\nThe page grew into ~8 stacked panels before you reach a shift card. This collapses it to one working surface: a sticky action bar (week stepper + status + Publish, always visible) replaces the page-header, the whole Week panel, and the Checklist panel. One control row (role chips + Day/Week toggle) replaces the two tab rows. Landing view is the Day builder." },
+    { "id": "landing", "x": 0, "y": -110, "w": 900, "page": "mobile", "text": "The landing / empty state — 'First run / setup' and 'Jump to a week'\n\nToday's page opens on a full Week panel (a weekday select + a date field + three helper-text blocks) every visit. In the redesign that panel is gone. First run only: one calm card — pick the week-start weekday (chips), pick the first date, Start planning. After that, opening Build Schedule drops straight onto the current week; changing week is the ‹ Sep 1–7 › stepper in the action bar, which opens the 'Jump to a week' sheet (last / this / next / dated weeks, each showing its status)." },
+    { "id": "moves", "x": 950, "y": -300, "w": 560, "page": "mobile", "text": "What moved / merged\n\n• Week picker: full panel → header ‹ date › stepper → 'Jump to a week' sheet\n• First-run setup: 3 helper-text blocks → one 2-step card\n• Checklist panel: gone → one-line ‘18/24 filled · Saved’ + status pill\n• Publish: buried in a panel → persistent top-right button\n• Copy last week / Start fresh: inline panel → full takeover on a new week\n• ‘Copied · N conflicts’: permanent-looking panel → thin strip above the day tabs\n• Manager notes: permanent panel → the ⋯ overflow menu" }
+  ],
+  "launch": { "view": "canvas", "page": "mobile" }
+}

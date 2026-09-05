@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 
+import { LoadingScreen } from './LoadingScreen/LoadingScreen';
 import { useAuth } from '../state/AuthState';
 
 export const ProtectedRoute = ({ children, allow }) => {
@@ -7,7 +8,7 @@ export const ProtectedRoute = ({ children, allow }) => {
   const location = useLocation();
 
   if (loading) {
-    return <div className="protected-route__loading">Loading…</div>;
+    return <LoadingScreen message="Getting your workspace ready…" />;
   }
 
   if (!user) {

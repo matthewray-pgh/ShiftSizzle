@@ -185,84 +185,13 @@
   }
 }
 
-// ============================================================
-// Dark shell — MOBILE ONLY. On phones the Account view paints the app
-// background to match the header (body-class toggle in Account.jsx)
-// and recolors the card, inputs and controls for dark. On desktop the
-// view keeps its original light styling above.
-// ============================================================
 @media (max-width: 700px) {
-  $acct-border: rgba(148, 163, 184, 0.16);
-  $acct-text: #f8fafc;
-  $acct-text-muted: rgba(248, 250, 252, 0.62);
-
-  body.account-view {
-    background: styles.$primary-color;
-  }
-
   .account {
     &__identity {
       margin: 0.75rem 4px 1.25rem;
     }
 
-    &__identity-name {
-      color: $acct-text;
-    }
-
-    &__identity-role,
-    &__field-hint {
-      color: $acct-text-muted;
-    }
-
-    .content-panel {
-      background: linear-gradient(180deg, #17253f 0%, #111c33 100%);
-      border-color: $acct-border;
-      box-shadow: 0 18px 40px rgba(8, 13, 25, 0.45);
-    }
-
-    .input-field label {
-      color: $acct-text-muted;
-    }
-
-    .input-field input,
-    .input-field select,
-    .input-field textarea {
-      background: rgba(15, 23, 42, 0.45);
-      border-color: rgba(148, 163, 184, 0.22);
-      color: $acct-text;
-      box-shadow: none;
-
-      &::placeholder {
-        color: rgba(248, 250, 252, 0.4);
-      }
-
-      &:focus {
-        background: rgba(15, 23, 42, 0.62);
-        border-color: rgba(255, 107, 53, 0.6);
-        box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.16);
-      }
-    }
-
-    input[readonly] {
-      background: rgba(15, 23, 42, 0.28);
-      color: $acct-text-muted;
-    }
-
-    &__field-error {
-      color: #fca5a5;
-    }
-
-    &__dirty-indicator {
-      background: rgba(245, 158, 11, 0.16);
-      color: #fbbf24;
-    }
-
-    &__saved {
-      color: #4ade80;
-    }
-
     &__save-bar {
-      border-top-color: $acct-border;
       flex-direction: column;
       align-items: stretch;
     }
@@ -271,41 +200,6 @@
       margin-left: 0;
       flex-direction: column-reverse;
       align-items: stretch;
-    }
-
-    &__session {
-      border-top-color: $acct-border;
-    }
-
-    &__signout {
-      background: rgba(239, 68, 68, 0.12);
-      color: #fca5a5;
-
-      &:hover,
-      &:focus-visible {
-        background: rgba(239, 68, 68, 0.2);
-        border-color: rgba(239, 68, 68, 0.62);
-        color: #fecaca;
-      }
-    }
-
-    .button-outline {
-      background: rgba(248, 250, 252, 0.06);
-      border-color: rgba(148, 163, 184, 0.28);
-      color: $acct-text;
-      box-shadow: none;
-
-      &:hover {
-        background: rgba(255, 107, 53, 0.14);
-        border-color: rgba(255, 107, 53, 0.4);
-        color: #fff;
-      }
-
-      &:disabled {
-        background: rgba(248, 250, 252, 0.04);
-        border-color: rgba(148, 163, 184, 0.16);
-        color: rgba(248, 250, 252, 0.35);
-      }
     }
   }
 }

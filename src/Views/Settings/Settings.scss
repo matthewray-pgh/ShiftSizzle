@@ -287,6 +287,136 @@
     justify-content: flex-end;
   }
 
+  &__shift-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+  }
+
+  &__shift-row {
+    padding: 0.85rem 0.9rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.82);
+  }
+
+  &__shift-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.6rem;
+
+    strong {
+      color: #14213d;
+      font-size: 0.94rem;
+    }
+  }
+
+  &__shift-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+    cursor: pointer;
+    font: inherit;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+  }
+
+  &__shift-row-times {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  &__shift-time {
+    min-width: 0;
+  }
+
+  &__inline-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  // ---- coverage targets grid ----
+  &__coverage-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.6rem;
+  }
+
+  &__coverage-row {
+    padding: 0.85rem 0.9rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.82);
+
+    &.is-closed {
+      opacity: 0.72;
+    }
+  }
+
+  &__coverage-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.55rem;
+
+    strong {
+      color: #14213d;
+      font-size: 0.92rem;
+    }
+  }
+
+  &__coverage-closed {
+    color: styles.$text-secondary;
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+
+  &__coverage-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.65rem;
+  }
+
+  &__coverage-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: styles.$text-secondary;
+  }
+
+  &__coverage-input {
+    min-height: 40px;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 10px;
+    background: #fff;
+    color: #14213d;
+    font: inherit;
+    box-sizing: border-box;
+  }
+
   &__toggle {
     display: inline-flex;
     align-items: center;
@@ -423,27 +553,9 @@
   }
 }
 
-// On phones, paint the app background navy to match the header (toggled by
-// Settings.jsx) and lift the bare page-header copy onto it. The settings
-// panel keeps its light surface and reads as a card floating on the navy.
 @media (max-width: 700px) {
-  body.settings-view {
-    background: styles.$primary-color;
-  }
-
-  body.settings-view {
-    .settings__page-header {
-      margin: 10px 16px 16px;
-    }
-
-    // !important to beat the brand-theme layer, which pins this h2 to navy.
-    .settings__page-copy h2 {
-      color: styles.$text-on-dark !important;
-    }
-
-    .settings__page-copy p {
-      color: styles.$text-on-dark-secondary;
-    }
+  .settings__page-header {
+    margin: 10px 16px 16px;
   }
 }
 
