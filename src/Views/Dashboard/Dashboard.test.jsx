@@ -365,4 +365,54 @@ describe('Dashboard view', () => {
     expect(screen.getByText('My Schedule')).toBeInTheDocument();
     expect(screen.getByText(/Ask a manager to link your account to a roster profile/)).toBeInTheDocument();
   });
+
+  it('shows a resume-schedule card for a manager with an unpublished / short-staffed week, deep-linking into it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-27T12:00:00'));
+
+    await renderView(Dashboard, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: mondayTuesdayOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'draft',
+        requirements: { ...grid(1), Tuesday: { Open: 1 } },
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    const card = screen.getByText('Finish your schedule').closest('.dashboard__resume');
+
+    expect(within(card).getByText(/Manager · 1 open/)).toBeInTheDocument();
+    const link = within(card).getByRole('link', { name: 'Resume schedule' });
+    expect(link).toHaveAttribute('href', '/schedule/build?weekStart=2026-05-24&role=Manager&day=Tuesday');
+  });
+
+  it('shows no resume-schedule card once every week is published and fully staffed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-27T12:00:00'));
+
+    await renderView(Dashboard, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: mondayOnlyOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'published',
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    expect(screen.queryByText('Finish your schedule')).not.toBeInTheDocument();
+  });
 });

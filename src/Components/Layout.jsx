@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from "react-router-dom";
 
-import { useAppState } from "../state/AppState";
+import { getUnresolvedScheduleItems, useAppState } from "../state/AppState";
 import { useAuth } from "../state/AuthState";
 import logo from "../Assets/ShiftSizzle.Logo.OnDark.png";
 
@@ -19,6 +19,9 @@ export const Layout = ({ children }) => {
   const { user, membership } = useAuth();
   const { state } = useAppState();
   const workspaceLabel = ROLE_LABELS[membership?.accountRole] ?? "Workspace";
+  const canManage = membership?.accountRole !== "staff";
+  // Calm, static count of outstanding schedule work — no escalation (§5).
+  const scheduleBadge = canManage ? getUnresolvedScheduleItems(state).length : 0;
 
   const pageTitles = {
     "/": "Dashboard",
@@ -69,7 +72,7 @@ export const Layout = ({ children }) => {
 
       <main className="layout__main">
         <section className="layout__sidebar-nav">
-          <Navigation testId="sidebar-nav" canManage={membership?.accountRole !== "staff"} />
+          <Navigation testId="sidebar-nav" canManage={canManage} scheduleBadge={scheduleBadge} />
         </section>
 
         <section className="layout__main--content">
@@ -88,7 +91,7 @@ export const Layout = ({ children }) => {
   );
 };
 
-const Navigation = ({ testId, canManage }) => {
+const Navigation = ({ testId, canManage, scheduleBadge = 0 }) => {
   const getLinkClass = ({ isActive }) => (isActive ? "layout__nav--link active" : "layout__nav--link");
 
   return (
@@ -100,6 +103,11 @@ const Navigation = ({ testId, canManage }) => {
       <NavLink className={getLinkClass} to="/schedule">
         <i className="fas fa-clock-rotate-left" aria-hidden="true"></i>
         <span>Schedule</span>
+        {scheduleBadge > 0 && (
+          <span className="layout__nav-badge" aria-label={`${scheduleBadge} schedule ${scheduleBadge === 1 ? "item needs" : "items need"} attention`}>
+            {scheduleBadge}
+          </span>
+        )}
       </NavLink>
       <NavLink className={getLinkClass} to="/team">
         <i className="fas fa-users" aria-hidden="true"></i>

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AppStateProvider, useAppState } from './AppState';
+import { AppStateProvider, getLiveCopyConflicts, getUnresolvedCallOuts, useAppState } from './AppState';
 import { AuthProvider } from './AuthState';
 
 vi.mock('../lib/supabaseClient', async () => {
@@ -62,6 +62,9 @@ const TestHarness = ({ initialWeek }) => {
       <button type="button" onClick={() => dispatch({ type: 'PUBLISH_SCHEDULE' })}>
         Publish
       </button>
+      <button type="button" onClick={() => dispatch({ type: 'PUBLISH_SCHEDULE', payload: { roles: ['Manager'] } })}>
+        Publish Manager only
+      </button>
       <button type="button" onClick={() => dispatch({ type: 'RESET_WEEK_DRAFT' })}>
         Reset week
       </button>
@@ -113,6 +116,21 @@ const TestHarness = ({ initialWeek }) => {
       >
         Apply Manager Monday to all days
       </button>
+      <button type="button" onClick={() => dispatch({ type: 'COPY_LAST_WEEK' })}>
+        Copy last week
+      </button>
+      <button
+        type="button"
+        onClick={() => dispatch({ type: 'MARK_CALLED_OUT', payload: { employeeId, role: 'Manager', day: 'Monday', shift: 'Open' } })}
+      >
+        Mark called out
+      </button>
+      <button
+        type="button"
+        onClick={() => dispatch({ type: 'RESOLVE_CALL_OUT', payload: { role: 'Manager', day: 'Monday', shift: 'Open', coveredBy: employeeId } })}
+      >
+        Cover Monday Open
+      </button>
       <button type="button" onClick={() => dispatch({ type: 'SELECT_WEEK', payload: { startDate: '2026-05-24' } })}>
         Go to week A
       </button>
@@ -121,6 +139,10 @@ const TestHarness = ({ initialWeek }) => {
       </button>
       <span>Assigned count: {assignedCount}</span>
       <span>Current week: {state.schedule.startDate}</span>
+      <span>Copied from: {state.schedule.copiedFrom ?? 'none'}</span>
+      <span>Live copy conflicts: {getLiveCopyConflicts(state.schedule).length}</span>
+      <span>Call-outs: {state.callOuts.length}</span>
+      <span>Unresolved call-outs: {getUnresolvedCallOuts(state.callOuts).length}</span>
       <span>Manager Monday Open requirement: {state.schedule.roleRequirements?.Manager?.Monday?.Open ?? 0}</span>
       <span>Server Monday Open requirement: {state.schedule.roleRequirements?.Server?.Monday?.Open ?? 0}</span>
       <span>Manager Tuesday Open requirement: {state.schedule.roleRequirements?.Manager?.Tuesday?.Open ?? 0}</span>
@@ -174,6 +196,7 @@ const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'
 
 beforeEach(() => {
   resetFakeSupabase();
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -348,6 +371,50 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
   });
 
+  it('seeds a fresh week\'s requirements from the Settings coverage template', async () => {
+    seedFakeSupabase(supabase, {
+      settings: {
+        shiftTypes: ['Open'],
+        weekStartsOn: 'Monday',
+        operatingHours: twoRoleOperatingHours,
+        roleCoverage: { Manager: { Monday: { Open: 3 }, Tuesday: { Open: 2 } } },
+      },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+      ],
+    });
+
+    renderHarness('2026-06-01');
+
+    await screen.findByText('Manager Monday Open requirement: 3');
+    expect(screen.getByText('Manager Tuesday Open requirement: 2')).toBeInTheDocument();
+    // No demand entered for Server -> stays zero.
+    expect(screen.getByText('Server Monday Open requirement: 0')).toBeInTheDocument();
+  });
+
+  it('backfills the coverage template from the latest saved record per role when none is stored', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay },
+      ],
+      schedules: [{
+        startDate: '2026-05-25',
+        endDate: '2026-05-31',
+        role: 'Manager',
+        status: 'published',
+        requirements: emptyWeekGrid(2),
+        assignments: { 1: emptyAssignments() },
+        savedAt: '2026-05-20T00:00:00.000Z',
+      }],
+    });
+
+    // A different, unscheduled week still inherits the backfilled template.
+    renderHarness('2026-06-01');
+
+    await screen.findByText('Manager Monday Open requirement: 2');
+  });
+
   it('applies one day\'s coverage targets to every day for that role only', async () => {
     seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
@@ -484,7 +551,37 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
   });
 
-  it('resets every role\'s requirements and assignments for the week without touching saved history', async () => {
+  it('partial publish (explicit role list) publishes the listed role and holds the rest back as draft', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+        { id: '2', name: 'Ava Cole', roles: ['Server'], status: 'active', shiftsPerWeek: 2, availability: availableEveryDay },
+      ],
+      schedules: [
+        {
+          startDate: '2026-05-25', endDate: '2026-05-31', role: 'Manager', status: 'draft',
+          requirements: emptyWeekGrid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+        {
+          startDate: '2026-05-25', endDate: '2026-05-31', role: 'Server', status: 'draft',
+          requirements: emptyWeekGrid(1), assignments: { 2: { ...emptyAssignments(), Monday: ['Open'] } },
+        },
+      ],
+    });
+
+    renderHarness('2026-05-25');
+    await screen.findByText('Saved schedules count: 2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Manager only' }));
+
+    expect(screen.getByText('2026-05-25__Manager · published')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-25__Server · draft')).toBeInTheDocument();
+    // Not every signal role is published, so the week itself stays draft.
+    expect(screen.getByText('Schedule status: draft')).toBeInTheDocument();
+  });
+
+  it('reset clears the week\'s assignments and notes, re-seeds requirements from the template, and leaves saved history alone', async () => {
     seedFakeSupabase(supabase, {
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
       employees: [
@@ -512,7 +609,9 @@ describe('AppState scheduling', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset week' }));
 
-    expect(screen.getByText('Manager Monday Open requirement: 0')).toBeInTheDocument();
+    // Manager's target came from the template (backfilled from the published
+    // record); Server's canvas-only bump is gone.
+    expect(screen.getByText('Manager Monday Open requirement: 1')).toBeInTheDocument();
     expect(screen.getByText('Server Monday Open requirement: 0')).toBeInTheDocument();
     expect(screen.getByText('Assigned count: 0')).toBeInTheDocument();
     expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
@@ -549,7 +648,9 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to week B' }));
-    expect(screen.getByText('Manager Monday Open requirement: 0')).toBeInTheDocument();
+    // A fresh week with no record of its own now inherits the coverage
+    // template, which was backfilled from week A's saved record on hydrate.
+    expect(screen.getByText('Manager Monday Open requirement: 1')).toBeInTheDocument();
     expect(screen.getByText('Has last saved at: no')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to week A' }));
@@ -586,5 +687,135 @@ describe('AppState scheduling', () => {
     expect(screen.getByText('Has unsaved changes: no')).toBeInTheDocument();
     expect(screen.getByText('Saved schedules count: 1')).toBeInTheDocument();
     expect(screen.getByText('2026-05-24__Manager · draft')).toBeInTheDocument();
+  });
+
+  const weekAManagerRecord = (over = {}) => ({
+    weekLabel: 'May 24 - May 30, 2026',
+    startDate: '2026-05-24',
+    endDate: '2026-05-30',
+    role: 'Manager',
+    status: 'draft',
+    requirements: emptyWeekGrid(1),
+    assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+    ...over,
+  });
+
+  it('copy last week brings the prior week\'s assignments over and re-seeds targets from the template', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [weekAManagerRecord()],
+    });
+
+    // Week B (2026-05-31) starts empty.
+    renderHarness('2026-05-31');
+    await screen.findByText('Current week: 2026-05-31');
+    expect(screen.getByText('Assigned count: 0')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy last week' }));
+
+    expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
+    expect(screen.getByText('Copied from: 2026-05-24')).toBeInTheDocument();
+    expect(screen.getByText('Live copy conflicts: 0')).toBeInTheDocument();
+    expect(screen.getByText('Has unsaved changes: yes')).toBeInTheDocument();
+  });
+
+  it('copy last week flags an assignment as a conflict when the employee is now unavailable that day', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: { ...availableEveryDay, Monday: [] } },
+      ],
+      schedules: [weekAManagerRecord()],
+    });
+
+    renderHarness('2026-05-31');
+    await screen.findByText('Current week: 2026-05-31');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy last week' }));
+
+    // The assignment is kept on the canvas but flagged for review.
+    expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
+    expect(screen.getByText('Live copy conflicts: 1')).toBeInTheDocument();
+  });
+
+  it('copy last week flags a hard conflict when the employee no longer holds the role', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Server'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [weekAManagerRecord()],
+    });
+
+    renderHarness('2026-05-31');
+    await screen.findByText('Current week: 2026-05-31');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy last week' }));
+
+    expect(screen.getByText('Live copy conflicts: 1')).toBeInTheDocument();
+  });
+
+  it('mark called out logs a durable event and clears the assignment; reassigning covers it', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [weekAManagerRecord()],
+    });
+
+    renderHarness('2026-05-24');
+    await screen.findByText('Assigned count: 1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark called out' }));
+
+    expect(screen.getByText('Assigned count: 0')).toBeInTheDocument();
+    expect(screen.getByText('Call-outs: 1')).toBeInTheDocument();
+    expect(screen.getByText('Unresolved call-outs: 1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cover Monday Open' }));
+
+    // The event is kept for history; it just no longer needs coverage.
+    expect(screen.getByText('Call-outs: 1')).toBeInTheDocument();
+    expect(screen.getByText('Unresolved call-outs: 0')).toBeInTheDocument();
+  });
+
+  it('mark called out is a no-op when the person is not assigned to that slot', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [weekAManagerRecord({ assignments: { 1: emptyAssignments() } })],
+    });
+
+    renderHarness('2026-05-24');
+    await screen.findByText('Assigned count: 0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark called out' }));
+
+    expect(screen.getByText('Call-outs: 0')).toBeInTheDocument();
+  });
+
+  it('copy last week does nothing when there is no earlier scheduled week', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], status: 'active', shiftsPerWeek: 5, availability: availableEveryDay },
+      ],
+      schedules: [weekAManagerRecord({ startDate: '2026-06-07', endDate: '2026-06-13', weekLabel: 'Jun 7 - Jun 13, 2026' })],
+    });
+
+    // The only saved week is AFTER this one.
+    renderHarness('2026-05-31');
+    await screen.findByText('Current week: 2026-05-31');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy last week' }));
+
+    expect(screen.getByText('Assigned count: 0')).toBeInTheDocument();
+    expect(screen.getByText('Copied from: none')).toBeInTheDocument();
   });
 });

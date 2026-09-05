@@ -1,4 +1,5 @@
 import { render, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { expect } from 'vitest';
 
 import { AppStateProvider, DAYS, useAppState } from '../state/AppState';
@@ -49,13 +50,15 @@ export const renderView = async (ViewComponent, seed = {}) => {
   });
 
   const view = render(
-    <AuthProvider>
-      <AppStateProvider>
-        <HydrationGate>
-          <ViewComponent />
-        </HydrationGate>
-      </AppStateProvider>
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <AppStateProvider>
+          <HydrationGate>
+            <ViewComponent />
+          </HydrationGate>
+        </AppStateProvider>
+      </AuthProvider>
+    </MemoryRouter>
   );
 
   await waitFor(() => {

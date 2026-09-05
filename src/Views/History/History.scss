@@ -691,20 +691,4 @@
   .history__page-intro {
     margin: 10px 16px 16px;
   }
-
-  // First-run screen only: paint the app background navy to match the
-  // header (toggled by History.jsx), and lift the intro copy onto it.
-  body.history-empty-view {
-    background: #0f172a;
-  }
-
-  body.history-empty-view .history__page-intro {
-    h2 {
-      color: #f8fafc;
-    }
-
-    p {
-      color: rgba(248, 250, 252, 0.72);
-    }
-  }
 }

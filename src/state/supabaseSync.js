@@ -2,7 +2,7 @@
 // mapping, plus every Supabase call the app makes, live here — AppState.jsx
 // stays free of column names and query syntax.
 import { supabase } from '../lib/supabaseClient';
-import { buildScheduleRecordId } from './scheduleRecordId';
+import { buildCallOutId, buildScheduleRecordId } from './scheduleRecordId';
 
 const mapOrganizationRowToSettings = (row) => ({
   businessName: row.name,
@@ -10,6 +10,10 @@ const mapOrganizationRowToSettings = (row) => ({
   schedulerName: row.scheduler_name,
   publishNotifications: row.publish_notifications,
   shiftTypes: row.shift_types,
+  // Optional per-label time ranges; `{}` when the org has never set any.
+  shiftTimes: row.shift_times ?? undefined,
+  // The once-entered coverage template: { [role]: { [day]: { [shift]: n } } }.
+  roleCoverage: row.role_coverage ?? undefined,
   // `team_roles` is the current column; `additional_team_roles` is only
   // read here so a not-yet-migrated org still hydrates (AppState folds the
   // legacy custom-only list back into the flat one).
@@ -25,6 +29,8 @@ const mapSettingsToOrganizationRow = (settings) => ({
   scheduler_name: settings.schedulerName,
   publish_notifications: settings.publishNotifications,
   shift_types: settings.shiftTypes,
+  shift_times: settings.shiftTimes ?? {},
+  role_coverage: settings.roleCoverage ?? {},
   team_roles: settings.teamRoles,
   week_starts_on: settings.weekStartsOn,
   operating_hours: settings.operatingHours,
@@ -74,6 +80,30 @@ const mapScheduleRowToRecord = (row) => ({
   createdAt: row.created_at,
 });
 
+const mapCallOutRowToRecord = (row) => ({
+  id: buildCallOutId(row.week_start_date, row.role, row.day, row.shift, row.employee_id),
+  weekStartDate: row.week_start_date,
+  role: row.role,
+  day: row.day,
+  shift: row.shift,
+  employeeId: row.employee_id,
+  calledOutAt: row.called_out_at,
+  resolvedVia: row.resolved_via ?? null,
+  coveredBy: row.covered_by ?? null,
+});
+
+const mapCallOutToRow = (orgId, callOut) => ({
+  org_id: orgId,
+  week_start_date: callOut.weekStartDate,
+  role: callOut.role,
+  day: callOut.day,
+  shift: callOut.shift,
+  employee_id: callOut.employeeId,
+  called_out_at: callOut.calledOutAt,
+  resolved_via: callOut.resolvedVia ?? null,
+  covered_by: callOut.coveredBy ?? null,
+});
+
 const mapRecordToScheduleRow = (orgId, record) => ({
   org_id: orgId,
   week_label: record.weekLabel,
@@ -88,12 +118,32 @@ const mapRecordToScheduleRow = (orgId, record) => ({
   published_at: record.publishedAt,
 });
 
+// `call_outs` (migration 0006) is newer than the other tables. If it is
+// missing, or its columns are, tolerate that — return no call-outs — rather
+// than rejecting the whole bundle and dropping the app into offline mode.
+const fetchCallOuts = async (orgId) => {
+  try {
+    const { data, error } = await supabase.from('call_outs').select('*').eq('org_id', orgId);
+
+    if (error) {
+      console.warn('call_outs unavailable (apply migration 0006_call_outs.sql to enable call-out sync)', error);
+      return [];
+    }
+
+    return data.map(mapCallOutRowToRecord);
+  } catch (error) {
+    console.warn('call_outs fetch failed', error);
+    return [];
+  }
+};
+
 export const fetchOrgBundle = async (orgId) => {
-  const [orgResult, employeesResult, availabilityResult, scheduleResult] = await Promise.all([
+  const [orgResult, employeesResult, availabilityResult, scheduleResult, callOuts] = await Promise.all([
     supabase.from('organizations').select('*').eq('id', orgId).single(),
     supabase.from('employees').select('*').eq('org_id', orgId),
     supabase.from('employee_availability').select('*').eq('org_id', orgId),
     supabase.from('schedule_records').select('*').eq('org_id', orgId),
+    fetchCallOuts(orgId),
   ]);
 
   if (orgResult.error) throw orgResult.error;
@@ -111,47 +161,50 @@ export const fetchOrgBundle = async (orgId) => {
       mapEmployeeRowToEmployee(row, availabilityByEmployeeId.get(row.id))
     ),
     schedules: scheduleResult.data.map(mapScheduleRowToRecord),
+    callOuts,
   };
 };
 
-export const upsertEmployeeRow = async (orgId, employee) => {
-  const { error } = await supabase.from('employees').upsert(mapEmployeeToEmployeeRow(orgId, employee));
+// Each writer resolves to the error (or null on success) rather than
+// swallowing it, so AppState's push loop can surface a sync-status and
+// retry. A thrown network error is caught and returned in the same shape.
+const runWrite = async (label, thunk) => {
+  try {
+    const { error } = await thunk();
 
-  if (error) {
-    console.error('Failed to sync employee to Supabase', error);
+    if (error) {
+      console.error(`Failed to sync ${label} to Supabase`, error);
+    }
+
+    return error ?? null;
+  } catch (error) {
+    console.error(`Failed to sync ${label} to Supabase`, error);
+    return error;
   }
 };
 
-export const upsertAvailabilityRow = async (orgId, employeeId, availability) => {
-  const { error } = await supabase
-    .from('employee_availability')
-    .upsert({ employee_id: employeeId, org_id: orgId, availability });
+export const upsertEmployeeRow = (orgId, employee) =>
+  runWrite('employee', () => supabase.from('employees').upsert(mapEmployeeToEmployeeRow(orgId, employee)));
 
-  if (error) {
-    console.error('Failed to sync availability to Supabase', error);
-  }
-};
+export const upsertAvailabilityRow = (orgId, employeeId, availability) =>
+  runWrite('availability', () =>
+    supabase.from('employee_availability').upsert({ employee_id: employeeId, org_id: orgId, availability }));
 
-export const upsertScheduleRecordRow = async (orgId, record) => {
-  const { error } = await supabase
-    .from('schedule_records')
-    .upsert(mapRecordToScheduleRow(orgId, record), { onConflict: 'org_id,start_date,role' });
+export const upsertScheduleRecordRow = (orgId, record) =>
+  runWrite('schedule record', () =>
+    supabase
+      .from('schedule_records')
+      .upsert(mapRecordToScheduleRow(orgId, record), { onConflict: 'org_id,start_date,role' }));
 
-  if (error) {
-    console.error('Failed to sync schedule record to Supabase', error);
-  }
-};
+export const updateOrganizationSettings = (orgId, settings) =>
+  runWrite('settings', () =>
+    supabase.from('organizations').update(mapSettingsToOrganizationRow(settings)).eq('id', orgId));
 
-export const updateOrganizationSettings = async (orgId, settings) => {
-  const { error } = await supabase
-    .from('organizations')
-    .update(mapSettingsToOrganizationRow(settings))
-    .eq('id', orgId);
-
-  if (error) {
-    console.error('Failed to sync settings to Supabase', error);
-  }
-};
+export const upsertCallOutRow = (orgId, callOut) =>
+  runWrite('call-out', () =>
+    supabase
+      .from('call_outs')
+      .upsert(mapCallOutToRow(orgId, callOut), { onConflict: 'org_id,week_start_date,role,day,shift,employee_id' }));
 
 // Realtime: other sessions' writes to this org's data get pushed into local
 // state via onChange -> MERGE_SERVER_RECORD, in the same camelCase shape
@@ -185,6 +238,14 @@ export const subscribeToOrgChanges = (orgId, onChange) => {
       (payload) => {
         const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
         onChange({ table: 'schedule_records', eventType: payload.eventType, row: mapScheduleRowToRecord(row) });
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'call_outs', filter: `org_id=eq.${orgId}` },
+      (payload) => {
+        const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+        onChange({ table: 'call_outs', eventType: payload.eventType, row: mapCallOutRowToRecord(row) });
       }
     )
     .subscribe();
