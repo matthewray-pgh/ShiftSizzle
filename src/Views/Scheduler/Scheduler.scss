@@ -231,6 +231,43 @@
     }
   }
 
+  &__setup-guided {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 0 16px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 107, 53, 0.4);
+    border-radius: 14px;
+    background: rgba(255, 107, 53, 0.08);
+    text-decoration: none;
+    color: #14213d;
+
+    span {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    strong {
+      font-size: 0.98rem;
+    }
+
+    span span {
+      color: styles.$text-secondary;
+      font-size: 0.84rem;
+    }
+
+    i {
+      color: styles.$primary;
+    }
+
+    &:hover {
+      background: rgba(255, 107, 53, 0.14);
+    }
+  }
+
   &__setup-card {
     display: flex;
     flex-direction: column;
@@ -298,12 +335,58 @@
     color: styles.$text-secondary;
   }
 
-  // ---- setup hint (no operating days) ----
-  &__setup-hint p {
-    margin: 0;
-    color: styles.$text-secondary;
-    font-size: 0.92rem;
-    line-height: 1.5;
+  // ---- readiness checklist (week set, but not ready to staff) ----
+  &__ready-list {
+    ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: styles.$text;
+      font-size: 0.94rem;
+      font-weight: 600;
+
+      > i {
+        color: rgba(15, 23, 42, 0.25);
+        font-size: 1rem;
+      }
+
+      span {
+        flex: 1;
+      }
+
+      &.is-done {
+        color: styles.$text-secondary;
+        font-weight: 500;
+
+        > i {
+          color: styles.$success;
+        }
+      }
+    }
+  }
+
+  &__ready-fix {
+    flex: none;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: rgba(255, 107, 53, 0.12);
+    color: #c2410c;
+    text-decoration: none;
+    font-size: 0.8rem;
+    font-weight: 700;
+
+    &:hover {
+      background: rgba(255, 107, 53, 0.2);
+    }
   }
 
   // ---- jump-to-a-week sheet ----
@@ -844,6 +927,26 @@
       font-size: 1rem;
       color: #14213d;
     }
+  }
+
+  &__day-panel-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+
+    .button-outline {
+      white-space: nowrap;
+    }
+  }
+
+  &__day-note {
+    margin: -4px 0 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255, 107, 53, 0.1);
+    color: #c2410c;
+    font-size: 0.82rem;
+    font-weight: 600;
   }
 
   &__day-empty {

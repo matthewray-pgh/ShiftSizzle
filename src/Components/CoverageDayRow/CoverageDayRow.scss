@@ -1,0 +1,86 @@
+@use '../../Assets/Styles.scss' as styles;
+
+.coverage-day-row {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 480px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.82);
+
+  &.is-closed {
+    opacity: 0.72;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  &__name {
+    flex: none;
+    color: #14213d;
+    font-size: 0.92rem;
+    white-space: nowrap;
+  }
+
+  &__closed {
+    color: styles.$text-secondary;
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+
+  &__apply {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.74rem;
+    text-align: center;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+    gap: 0.5rem;
+  }
+
+  &__field {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: styles.$text-secondary;
+
+    span {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    input {
+      width: 100%;
+      min-height: 40px;
+      padding: 0.45rem 0.4rem;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 10px;
+      background: #fff;
+      color: #14213d;
+      font: inherit;
+      font-weight: 500;
+      text-align: center;
+      box-sizing: border-box;
+    }
+  }
+}

@@ -4,3 +4,4 @@ export { History } from './History';
 export { Team } from './Team';
 export { Settings } from './Settings';
 export { Account } from './Account';
+export { SetupWizard } from './Setup/SetupWizard';

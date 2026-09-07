@@ -1,11 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider, useAppState } from '../../state/AppState';
 import { AuthProvider } from '../../state/AuthState';
 import { renderView } from '../../test/renderView';
 import { History } from './History';
+
+const mockNavigate = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return { ...actual, useNavigate: () => mockNavigate };
+});
 
 vi.mock('../../lib/supabaseClient', async () => {
   const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
@@ -24,17 +32,12 @@ const resetFakeSupabase = () => {
 
 const availableEveryDay = { Sunday: ['Open'], Monday: ['Open'], Tuesday: ['Open'], Wednesday: ['Open'], Thursday: ['Open'], Friday: ['Open'], Saturday: ['Open'] };
 
-// History.jsx reads a saved/published record's `metrics`/`coverageGaps`/
-// `shiftCapAlerts` straight off the record itself — those are computed by
-// the reducer's SAVE_SCHEDULE_DRAFT/PUBLISH_SCHEDULE actions
-// (buildScheduleRecordFromLiveSchedule) but are NOT columns Supabase
-// persists (see schedule_records in fakeSupabaseClient.js / supabaseSync.js),
-// so a record seeded directly via seedFakeSupabase (i.e. "loaded from a
-// previous session") would come back without them. To exercise History
-// with fully-populated records the same way the running app produces them,
-// this harness builds the schedules by dispatching the real actions
-// (mirrors the TestHarness pattern in AppState.test.jsx) instead of
-// pre-seeding `schedules[]` directly.
+// History.jsx reads a saved/published record's `metrics`/`requirements`/
+// `assignments` straight off the record — those are computed by the
+// reducer's SAVE_SCHEDULE_DRAFT/PUBLISH_SCHEDULE actions, not columns
+// Supabase persists, so a record pre-seeded directly would come back
+// without them. This harness builds the schedules by dispatching the real
+// actions (mirrors the TestHarness pattern in AppState.test.jsx).
 const HistoryTestHarness = () => {
   const { state, dispatch } = useAppState();
   const hasRunRef = useRef(false);
@@ -85,18 +88,20 @@ const renderHistoryWithTwoSavedWeeks = async () => {
   });
 
   render(
-    <AuthProvider>
-      <AppStateProvider>
-        <HistoryTestHarness />
-      </AppStateProvider>
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <AppStateProvider>
+          <HistoryTestHarness />
+        </AppStateProvider>
+      </AuthProvider>
+    </MemoryRouter>
   );
 
-  // Wait for both weeks to be built and saved before interacting.
   await screen.findByText('Jun 1 - Jun 7, 2026');
 };
 
 beforeEach(() => {
+  mockNavigate.mockClear();
   resetFakeSupabase();
   window.history.replaceState({}, '', '/schedule');
 });
@@ -108,7 +113,7 @@ describe('History view', () => {
     expect(screen.getByText('Start your schedule')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
-    expect(window.location.hash).toBe('#/schedule/build');
+    expect(mockNavigate).toHaveBeenCalledWith('/schedule/build');
   });
 
   it('hides schedule-building actions from staff', async () => {
@@ -118,10 +123,10 @@ describe('History view', () => {
     expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
   });
 
-  it('lists saved and published schedules newest to oldest with status badges', async () => {
+  it('lists saved weeks newest to oldest with a rolled-up status', async () => {
     await renderHistoryWithTwoSavedWeeks();
 
-    expect(screen.getByText('All schedules')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Schedules' })).toBeInTheDocument();
     const items = screen.getAllByRole('listitem');
 
     expect(items).toHaveLength(2);
@@ -131,35 +136,35 @@ describe('History view', () => {
     expect(within(items[1]).getByText('draft')).toBeInTheDocument();
   });
 
-  it('opens a schedule detail view with a resume link back to Scheduler', async () => {
+  it('opens a week detail view with a link back to the builder', async () => {
     await renderHistoryWithTwoSavedWeeks();
 
     fireEvent.click(screen.getByRole('button', { name: /Jun 1 - Jun 7, 2026/ }));
 
     expect(screen.getByRole('heading', { name: 'Jun 1 - Jun 7, 2026' })).toBeInTheDocument();
-    expect(screen.getByText('1 assigned slots across 1 team members.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Who worked' })).toBeInTheDocument();
+    expect(screen.getByText('Jen Ray')).toBeInTheDocument();
     expect(screen.getByText('Cover the patio.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Schedule' }));
-    expect(window.location.search).toBe('?weekStart=2026-06-01&role=Manager');
-    expect(window.location.hash).toBe('#/schedule/build');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit in builder' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/schedule/build?weekStart=2026-06-01');
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to all schedules' }));
-    expect(screen.getByText('All schedules')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Schedules' })).toBeInTheDocument();
   });
 
-  it('filters the list by role and status', async () => {
+  it('filters the list by status', async () => {
     await renderHistoryWithTwoSavedWeeks();
 
-    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'Manager' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'In progress' }));
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('May 25 - May 31, 2026')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Published' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByText('Jun 1 - Jun 7, 2026')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
-
-    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'draft' } });
-    expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByText('May 25 - May 31, 2026')).toBeInTheDocument();
   });
 });

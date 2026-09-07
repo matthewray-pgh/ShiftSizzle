@@ -61,4 +61,46 @@ describe('shift times (optional per-label metadata)', () => {
     expect(formatShiftLabel(settings, 'Open')).toBe('Open · 6a–11a');
     expect(formatShiftLabel(settings, 'Mid')).toBe('Mid');
   });
+
+  describe('per-day overrides', () => {
+    const withOverride = {
+      shiftTypes: ['Close'],
+      shiftTimes: {
+        Close: {
+          startTime: '18:00',
+          endTime: '23:00',
+          byDay: {
+            Friday: { startTime: '20:00', endTime: '02:00' },
+            Saturday: { startTime: '', endTime: '02:00' },
+            Monday: { startTime: '', endTime: '' },
+          },
+        },
+      },
+    };
+
+    it('normalizes only the days that actually differ, dropping empty ones', () => {
+      const result = normalizeShiftTimes(withOverride.shiftTimes, ['Close']);
+
+      expect(Object.keys(result.Close.byDay)).toEqual(['Friday', 'Saturday']);
+      expect(result.Close.byDay.Friday).toEqual({ startTime: '20:00', endTime: '02:00' });
+    });
+
+    it('has no byDay key at all for a label without overrides', () => {
+      expect(normalizeShiftTimes({ Close: { startTime: '18:00', endTime: '23:00' } }, ['Close']).Close)
+        .toEqual({ startTime: '18:00', endTime: '23:00' });
+    });
+
+    it('getShiftTime falls back to the base per field, and only when a day is asked for', () => {
+      expect(getShiftTime(withOverride, 'Close')).toEqual({ startTime: '18:00', endTime: '23:00' });
+      expect(getShiftTime(withOverride, 'Close', 'Tuesday')).toEqual({ startTime: '18:00', endTime: '23:00' });
+      expect(getShiftTime(withOverride, 'Close', 'Friday')).toEqual({ startTime: '20:00', endTime: '02:00' });
+      // Saturday overrides only the end; start falls back to the base.
+      expect(getShiftTime(withOverride, 'Close', 'Saturday')).toEqual({ startTime: '18:00', endTime: '02:00' });
+    });
+
+    it('formatShiftLabel picks up the day override', () => {
+      expect(formatShiftLabel(withOverride, 'Close')).toBe('Close · 6p–11p');
+      expect(formatShiftLabel(withOverride, 'Close', 'Friday')).toBe('Close · 8p–2a');
+    });
+  });
 });

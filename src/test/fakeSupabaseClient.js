@@ -212,7 +212,6 @@ export const seedFakeSupabase = (client, { userId = 'test-user', orgId = 'test-o
     id: orgId,
     name: settings.businessName ?? 'ShiftSizzle',
     location_name: settings.locationName ?? '',
-    scheduler_name: settings.schedulerName ?? '',
     publish_notifications: settings.publishNotifications ?? true,
     shift_types: settings.shiftTypes ?? ['Open', 'Mid', 'Close'],
     shift_times: settings.shiftTimes ?? {},

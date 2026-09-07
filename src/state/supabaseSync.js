@@ -7,7 +7,6 @@ import { buildCallOutId, buildScheduleRecordId } from './scheduleRecordId';
 const mapOrganizationRowToSettings = (row) => ({
   businessName: row.name,
   locationName: row.location_name,
-  schedulerName: row.scheduler_name,
   publishNotifications: row.publish_notifications,
   shiftTypes: row.shift_types,
   // Optional per-label time ranges; `{}` when the org has never set any.
@@ -26,7 +25,6 @@ const mapOrganizationRowToSettings = (row) => ({
 const mapSettingsToOrganizationRow = (settings) => ({
   name: settings.businessName,
   location_name: settings.locationName,
-  scheduler_name: settings.schedulerName,
   publish_notifications: settings.publishNotifications,
   shift_types: settings.shiftTypes,
   shift_times: settings.shiftTimes ?? {},
