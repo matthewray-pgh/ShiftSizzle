@@ -56,6 +56,23 @@ const TestHarness = ({ initialWeek }) => {
       <button type="button" onClick={() => dispatch({ type: 'AUTO_BUILD_SCHEDULE', payload: { role: 'Server' } })}>
         Auto-build Server
       </button>
+      <button
+        type="button"
+        onClick={() => dispatch({
+          type: 'APPLY_ROLE_ASSIGNMENTS',
+          payload: {
+            role: 'Manager',
+            picks: [
+              { employeeId: '1', day: 'Monday', shift: 'Open' },
+              { employeeId: '1', day: 'Tuesday', shift: 'Open' },
+              { employeeId: '1', day: 'Wednesday', shift: 'Open' },
+              { employeeId: 'ghost', day: 'Monday', shift: 'Open' },
+            ],
+          },
+        })}
+      >
+        Apply AI draft
+      </button>
       <button type="button" onClick={() => dispatch({ type: 'SAVE_SCHEDULE_DRAFT' })}>
         Save draft
       </button>
@@ -227,6 +244,24 @@ describe('AppState scheduling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generate draft' }));
 
     expect(screen.getByText('Assigned count: 1')).toBeInTheDocument();
+  });
+
+  it('applies an AI draft, dropping picks for closed days, over-cap, and unknown employees', async () => {
+    seedFakeSupabase(supabase, {
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Monday', operatingHours: twoRoleOperatingHours },
+      employees: [
+        { id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay },
+      ],
+    });
+
+    renderHarness();
+    await screen.findByText('Manager Monday Open requirement: 0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply AI draft' }));
+
+    // Wednesday is closed and "ghost" isn't on the roster, so only Mon + Tue land.
+    expect(screen.getByText('Assigned count: 2')).toBeInTheDocument();
+    expect(screen.getByText('Has unsaved changes: yes')).toBeInTheDocument();
   });
 
   it('prevents manual assignments from exceeding shifts per week cap', async () => {

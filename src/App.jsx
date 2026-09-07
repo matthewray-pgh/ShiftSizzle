@@ -3,7 +3,7 @@ import { ProtectedRoute } from "./Components/ProtectedRoute";
 import { HydrationGate } from "./Components/HydrationGate";
 import { Routes, Route } from "react-router-dom";
 
-import { Dashboard, Scheduler, History, Settings, Team, Account } from "./Views";
+import { Dashboard, Scheduler, History, Settings, Team, Account, SetupWizard } from "./Views";
 import { SignIn, SignUp, AcceptInvite } from "./Views/Auth";
 
 export default function App() {
@@ -20,6 +20,14 @@ export default function App() {
               <Layout>
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
+                  <Route
+                    path="/setup"
+                    element={
+                      <ProtectedRoute allow={["owner", "manager"]}>
+                        <SetupWizard />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route path="/schedule" element={<History />} />
                   <Route
                     path="/schedule/build"

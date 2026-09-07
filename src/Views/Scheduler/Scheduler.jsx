@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import './Scheduler.scss';
 
@@ -15,6 +16,7 @@ import {
   getOpenDays,
   getPriorScheduledWeekStart,
   getRolesWithSignal,
+  getSchedulerReadiness,
   getShiftTypes,
   getTeamRoles,
   getWeekChoices,
@@ -22,6 +24,8 @@ import {
   normalizeOperatingHours,
   useAppState,
 } from '../../state/AppState';
+import { AI_UNAVAILABLE, requestAiSchedule } from '../../state/aiAssist';
+import { supabase } from '../../lib/supabaseClient';
 
 const formatTimestamp = (value) => new Date(value).toLocaleString([], {
   month: 'short',
@@ -167,6 +171,9 @@ const DayBuilder = ({
   onRemove,
   onAutoFill,
   canAutoFill,
+  onAiDraft,
+  aiBuilding,
+  aiNote,
   conflictFor,
   onReplaceConflict,
   onKeepConflict,
@@ -203,10 +210,21 @@ const DayBuilder = ({
     <ContentPanel className="scheduler__day-panel" aria-label={`Shifts for ${selectedDay}`}>
       <div className="scheduler__day-panel-head">
         <h3>{selectedDay}</h3>
-        <button type="button" className="button-outline" disabled={!canAutoFill} onClick={onAutoFill}>
-          <i className="fas fa-wand-magic-sparkles" aria-hidden="true" /> Auto-fill
-        </button>
+        <div className="scheduler__day-panel-actions">
+          <button
+            type="button"
+            className="button-outline"
+            disabled={!canAutoFill || aiBuilding}
+            onClick={onAiDraft}
+          >
+            <i className="fas fa-sparkles" aria-hidden="true" /> {aiBuilding ? 'Drafting…' : 'AI draft'}
+          </button>
+          <button type="button" className="button-outline" disabled={!canAutoFill || aiBuilding} onClick={onAutoFill}>
+            <i className="fas fa-wand-magic-sparkles" aria-hidden="true" /> Auto-fill
+          </button>
+        </div>
       </div>
+      {aiNote ? <p className="scheduler__day-note" role="status">{aiNote}</p> : null}
 
       {cards.length === 0 ? (
         <p className="scheduler__day-empty">
@@ -351,6 +369,13 @@ const FirstRunSetup = ({ weekStartsOn, startDate, onSetDay, onSetDate }) => (
       <h2>Build Schedule</h2>
       <p>Two quick choices, then you're building.</p>
     </div>
+    <Link className="scheduler__setup-guided" to="/setup">
+      <span>
+        <strong>New here? Start from your business type</strong>
+        <span>We fill in hours, roles, and coverage — you review.</span>
+      </span>
+      <i className="fas fa-arrow-right" aria-hidden="true" />
+    </Link>
     <ContentPanel className="scheduler__setup-card">
       <div className="scheduler__setup-step">
         <span className="scheduler__setup-num">1</span>
@@ -393,6 +418,42 @@ const FirstRunSetup = ({ weekStartsOn, startDate, onSetDay, onSetDate }) => (
     <p className="scheduler__setup-foot">
       After this, Build Schedule opens straight onto the current week.
     </p>
+  </div>
+);
+
+// Shown in place of the builder body once a week is set but the org still
+// isn't ready to staff it — no open days, no coverage targets, or no
+// roster. Each unmet item links to where it's fixed; the guided setup does
+// all of them at once. Fed by getSchedulerReadiness so it can't disagree
+// with the dashboard's "Finish setting up" card.
+const SchedulerReadyChecklist = ({ steps }) => (
+  <div className="scheduler__setup">
+    <div className="scheduler__setup-head">
+      <h2>Finish setup to build this week</h2>
+      <p>The builder opens here once these are in place.</p>
+    </div>
+    <Link className="scheduler__setup-guided" to="/setup">
+      <span>
+        <strong>Set it all up at once</strong>
+        <span>Pick your business type and we fill in hours, roles, and coverage.</span>
+      </span>
+      <i className="fas fa-arrow-right" aria-hidden="true" />
+    </Link>
+    <ContentPanel className="scheduler__ready-list">
+      <ul>
+        {steps.map((step) => (
+          <li key={step.key} className={step.done ? 'is-done' : ''}>
+            <i className={`fas ${step.done ? 'fa-circle-check' : 'fa-circle'}`} aria-hidden="true" />
+            <span>{step.label}</span>
+            {!step.done && (
+              <Link className="scheduler__ready-fix" to={step.to}>
+                {step.to === '/team' ? 'Add team' : 'Open Settings'}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </ContentPanel>
   </div>
 );
 
@@ -468,6 +529,8 @@ export const Scheduler = () => {
   const [weekSheetOpen, setWeekSheetOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [aiBuilding, setAiBuilding] = useState(false);
+  const [aiNote, setAiNote] = useState('');
   const undoTimerRef = useRef(null);
 
   useEffect(() => () => window.clearTimeout(undoTimerRef.current), []);
@@ -486,6 +549,7 @@ export const Scheduler = () => {
   const configuredWeekStart = settings.weekStartsOn;
   const hasWeekSettings = Boolean(configuredWeekStart);
   const hasWeekRange = Boolean(schedule.startDate && schedule.endDate && schedule.weekLabel);
+  const readiness = getSchedulerReadiness(state);
 
   const selectWeek = (nextStartDate) => {
     if (schedule.hasUnsavedChanges) {
@@ -695,6 +759,83 @@ export const Scheduler = () => {
     rolesToShow.forEach((role) => dispatch({ type: 'AUTO_BUILD_SCHEDULE', payload: { role } }));
   };
 
+  // Request body for the build-schedule Edge Function, for one role: the
+  // eligible roster with availability + caps, this week's coverage targets,
+  // and every shift already assigned (any role) so the model respects the
+  // weekly cap and same-day double-booking.
+  const buildAiRequestForRole = (role) => {
+    const roleEmployees = employees.filter(
+      (employee) => employee.status !== 'archived' && (employee.roles ?? []).includes(role),
+    );
+    const req = schedule.roleRequirements[role] ?? {};
+    const requirements = Object.fromEntries(openDays.map((day) => [
+      day,
+      Object.fromEntries(shiftTypes.map((shift) => [shift, req[day]?.[shift] ?? 0])),
+    ]));
+    const existing = [];
+
+    teamRoles.forEach((otherRole) => {
+      const bucket = schedule.assignments[otherRole] ?? {};
+
+      roleEmployees.forEach((employee) => {
+        openDays.forEach((day) => {
+          (bucket[employee.id]?.[day] ?? []).forEach((shift) => {
+            existing.push({ employee_id: employee.id, day, shift, role: otherRole });
+          });
+        });
+      });
+    });
+
+    return {
+      role,
+      week_label: schedule.weekLabel,
+      days: openDays,
+      shift_types: shiftTypes,
+      employees: roleEmployees.map((employee) => ({
+        id: employee.id,
+        name: employee.name,
+        shifts_per_week: employee.shiftsPerWeek,
+        availability: employee.availability,
+      })),
+      requirements,
+      existing_assignments: existing,
+    };
+  };
+
+  const handleAiDraft = async () => {
+    setAiBuilding(true);
+    setAiNote('');
+
+    let fellBack = false;
+    let lastError = '';
+
+    for (const role of rolesToShow) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await requestAiSchedule(supabase, buildAiRequestForRole(role));
+
+      if (result.error === AI_UNAVAILABLE) {
+        fellBack = true;
+        break;
+      }
+
+      if (result.error) {
+        lastError = result.error;
+        continue;
+      }
+
+      dispatch({ type: 'APPLY_ROLE_ASSIGNMENTS', payload: { role, picks: result.assignments } });
+    }
+
+    if (fellBack) {
+      handleAutoFillVisible();
+      setAiNote('AI scheduling isn’t set up yet — used the built-in auto-fill.');
+    } else if (lastError) {
+      setAiNote(lastError);
+    }
+
+    setAiBuilding(false);
+  };
+
   // ---- Copy last week (§7) ----
   const priorWeekStart = getPriorScheduledWeekStart(state.schedules, schedule.startDate);
   const liveConflicts = getLiveCopyConflicts(schedule);
@@ -863,7 +1004,9 @@ export const Scheduler = () => {
         </div>
       </header>
 
-      {showCopyPrompt ? (
+      {!readiness.ready ? (
+        <SchedulerReadyChecklist steps={readiness.steps} />
+      ) : showCopyPrompt ? (
         <div className="scheduler__copy-takeover">
           <div className="scheduler__copy-takeover-inner">
             <i className="fas fa-calendar-plus" aria-hidden="true" />
@@ -934,14 +1077,7 @@ export const Scheduler = () => {
             </div>
           </div>
 
-          {openDays.length === 0 ? (
-            <ContentPanel className="scheduler__setup-hint">
-              <p>
-                <strong>No operating days yet.</strong> Set your business hours in Settings › Business
-                Hours to plan coverage for this week.
-              </p>
-            </ContentPanel>
-          ) : viewMode === 'overview' ? (
+          {viewMode === 'overview' ? (
             <WeekOverviewGrid grid={filterGrid} onSelectCell={handleSelectCell} />
           ) : (
             <DayBuilder
@@ -960,6 +1096,9 @@ export const Scheduler = () => {
               onRemove={handleRemoveAssignment}
               onAutoFill={handleAutoFillVisible}
               canAutoFill={demandSet && employees.length > 0}
+              onAiDraft={handleAiDraft}
+              aiBuilding={aiBuilding}
+              aiNote={aiNote}
               conflictFor={conflictFor}
               onReplaceConflict={handleReplaceConflict}
               onKeepConflict={handleKeepConflict}

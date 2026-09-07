@@ -223,6 +223,42 @@
     font-weight: 700;
   }
 
+  &__setup-card {
+    border-left-color: styles.$primary;
+  }
+
+  &__setup-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: styles.$text;
+      font-size: 0.9rem;
+      font-weight: 600;
+
+      i {
+        color: rgba(15, 23, 42, 0.25);
+        font-size: 0.95rem;
+      }
+
+      &.is-done {
+        color: styles.$text-secondary;
+        font-weight: 500;
+
+        i {
+          color: styles.$success;
+        }
+      }
+    }
+  }
+
   &__resume-list {
     display: flex;
     flex-direction: column;

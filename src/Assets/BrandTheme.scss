@@ -237,14 +237,6 @@ a {
   border-color: rgba(203, 213, 225, 0.72) !important;
 }
 
-.settings__toggle.is-active {
-  color: var(--brand-primary-strong) !important;
-}
-
-.settings__toggle.is-active .settings__toggle-track {
-  background: rgba(255, 107, 53, 0.28) !important;
-}
-
 .scheduler__publish-readiness.is-blocked,
 .settings__dirty-indicator {
   background: rgba(245, 158, 11, 0.14) !important;

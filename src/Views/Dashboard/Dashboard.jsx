@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 import { ContentPanel } from '../../Components';
-import { computeWeekReviewTotals, DAYS, getCurrentWeekStartDate, getOpenDays, getShiftTypes, getTeamRoles, getUnresolvedScheduleItems, getWeekView, useAppState } from '../../state/AppState';
+import { computeWeekReviewTotals, DAYS, getCurrentWeekStartDate, getOpenDays, getSchedulerReadiness, getShiftTypes, getTeamRoles, getUnresolvedScheduleItems, getWeekView, useAppState } from '../../state/AppState';
 import { useAuth } from '../../state/AuthState';
 
 import './Dashboard.scss';
@@ -412,6 +412,12 @@ export const Dashboard = () => {
 
   const resumeCount = resumeWeeks.reduce((total, week) => total + week.items.length, 0);
 
+  // First-run setup gaps (§ fast-start). Same readiness check the builder
+  // gate uses, so the card and the gate always agree.
+  const readiness = useMemo(() => getSchedulerReadiness(state), [state]);
+  const setupSteps = isManager ? readiness.steps : [];
+  const setupIncomplete = isManager && !readiness.ready;
+
   const buildResumeHref = (week) => {
     const lead = week.items.find((item) => item.openSlots > 0) ?? week.items[0];
     const params = new URLSearchParams({ weekStart: week.startDate, role: lead.role });
@@ -455,6 +461,25 @@ export const Dashboard = () => {
           ))}
         </div>
       </div>
+
+      {isManager && setupIncomplete && (
+        <ContentPanel className="dashboard__resume dashboard__setup-card">
+          <div className="dashboard__section-heading">
+            <h2>Finish setting up</h2>
+            <Link className="button-outline dashboard__resume-action" to="/setup">
+              Continue setup
+            </Link>
+          </div>
+          <ul className="dashboard__setup-steps">
+            {setupSteps.map((entry) => (
+              <li key={entry.key} className={entry.done ? 'is-done' : ''}>
+                <i className={`fas ${entry.done ? 'fa-circle-check' : 'fa-circle'}`} aria-hidden="true" />
+                {entry.label}
+              </li>
+            ))}
+          </ul>
+        </ContentPanel>
+      )}
 
       {isManager && resumeWeeks.length > 0 && (
         <ContentPanel className="dashboard__resume">

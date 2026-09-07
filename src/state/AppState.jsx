@@ -66,28 +66,51 @@ export const getShiftTypes = (settings = {}) => {
 
 // Optional per-label time ranges. The label stays the identity key
 // everywhere (availability, requirements, assignments); a time is display
-// metadata only. Always returns an entry for every current shift type, with
-// empty strings where nothing is set — so consumers never branch on missing
-// keys. Times for labels that no longer exist are dropped.
+// metadata only. Each entry has a base { startTime, endTime } plus an
+// optional sparse `byDay` map of per-day overrides (a day whose hours differ
+// from the base — e.g. a bar's later weekend "Close"). `byDay` is present
+// only when at least one day is overridden, and only holds the overridden
+// days, each falling back to the base per field. Times for labels that no
+// longer exist are dropped.
 export const normalizeShiftTimes = (shiftTimes = {}, shiftTypes = BASE_SHIFT_TYPES) =>
   Object.fromEntries(
     shiftTypes.map((label) => {
       const entry = shiftTimes?.[label] ?? {};
+      const base = {
+        startTime: typeof entry.startTime === "string" ? entry.startTime : "",
+        endTime: typeof entry.endTime === "string" ? entry.endTime : "",
+      };
+      const byDay = Object.fromEntries(
+        DAYS
+          .map((day) => {
+            const raw = entry.byDay?.[day] ?? {};
 
-      return [
-        label,
-        {
-          startTime: typeof entry.startTime === "string" ? entry.startTime : "",
-          endTime: typeof entry.endTime === "string" ? entry.endTime : "",
-        },
-      ];
+            return [
+              day,
+              {
+                startTime: typeof raw.startTime === "string" ? raw.startTime : "",
+                endTime: typeof raw.endTime === "string" ? raw.endTime : "",
+              },
+            ];
+          })
+          .filter(([, value]) => value.startTime || value.endTime)
+      );
+
+      return [label, Object.keys(byDay).length ? { ...base, byDay } : base];
     })
   );
 
-export const getShiftTime = (settings = {}, label = "") => {
+// The time range for one shift, optionally on a specific day: a day override
+// wins per field, otherwise the base time, otherwise empty.
+export const getShiftTime = (settings = {}, label = "", day = "") => {
   const times = normalizeShiftTimes(settings.shiftTimes, getShiftTypes(settings));
+  const entry = times[label] ?? { startTime: "", endTime: "" };
+  const override = day ? entry.byDay?.[day] : null;
 
-  return times[label] ?? { startTime: "", endTime: "" };
+  return {
+    startTime: (override && override.startTime) || entry.startTime || "",
+    endTime: (override && override.endTime) || entry.endTime || "",
+  };
 };
 
 // "13:30" -> "1:30p", "11:00" -> "11a", "" -> "".
@@ -124,9 +147,10 @@ export const formatShiftTimeRange = (shiftTime = {}) => {
   return start || end || "";
 };
 
-// "Mid" or, when a time range is configured, "Mid · 11a–4p".
-export const formatShiftLabel = (settings = {}, label = "") => {
-  const range = formatShiftTimeRange(getShiftTime(settings, label));
+// "Mid" or, when a time range is configured, "Mid · 11a–4p". Pass `day` to
+// pick up that day's override time range.
+export const formatShiftLabel = (settings = {}, label = "", day = "") => {
+  const range = formatShiftTimeRange(getShiftTime(settings, label, day));
 
   return range ? `${label} · ${range}` : label;
 };
@@ -732,6 +756,50 @@ export const getUnresolvedScheduleItems = (state, todayISO = formatISODate(new D
     .sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : a.role.localeCompare(b.role)));
 };
 
+// Whether the org has the four things a schedule needs, plus a per-step
+// breakdown for the checklist that gates the builder and the dashboard
+// "Finish setting up" card (one source of truth so the two can't drift).
+// Coverage counts as done if the Settings template has demand OR the week
+// currently loaded already carries requirements (an existing week being
+// edited shouldn't read as "not set up").
+export const getSchedulerReadiness = (state) => {
+  const { settings, employees, schedule } = state;
+  const teamRoles = getTeamRoles(settings, employees);
+  const shiftTypes = getShiftTypes(settings);
+  const openDays = getOpenDays(settings);
+
+  const hasWeek = Boolean(settings.weekStartsOn);
+  const hasHours = openDays.length > 0;
+
+  const templateHasCoverage = teamRoles.some((role) =>
+    DAYS.some((day) =>
+      shiftTypes.some((shift) => Number(settings.roleCoverage?.[role]?.[day]?.[shift]) > 0)));
+  const weekHasCoverage = Object.values(schedule.roleRequirements ?? {}).some((grid) =>
+    Object.values(grid ?? {}).some((row) =>
+      Object.values(row ?? {}).some((count) => Number(count) > 0)));
+  const hasCoverage = templateHasCoverage || weekHasCoverage;
+
+  const schedulableRoles = new Set(teamRoles);
+  const hasTeam = employees.some((employee) =>
+    employee.status !== "archived" && (employee.roles ?? []).some((role) => schedulableRoles.has(role)));
+
+  const steps = [
+    { key: "week", label: "Set your scheduling week", done: hasWeek, to: "/settings" },
+    { key: "hours", label: "Set your business hours", done: hasHours, to: "/settings" },
+    { key: "coverage", label: "Set coverage targets", done: hasCoverage, to: "/settings" },
+    { key: "team", label: "Add your team", done: hasTeam, to: "/team" },
+  ];
+
+  return {
+    hasWeek,
+    hasHours,
+    hasCoverage,
+    hasTeam,
+    ready: hasWeek && hasHours && hasCoverage && hasTeam,
+    steps,
+  };
+};
+
 // The saved status of one week: "published" when every signal record for it
 // is published, "draft" when records exist but not all are, "none" when the
 // week has no saved records at all.
@@ -1053,7 +1121,7 @@ export const computeDayCards = ({
           key: `${cardRole}__${shift}`,
           role: cardRole,
           shift,
-          label: formatShiftLabel(settings, shift),
+          label: formatShiftLabel(settings, shift, day),
           needed,
           assigned,
           calledOut,
@@ -1239,7 +1307,6 @@ const createDefaultState = () => {
   const settings = {
     businessName: "ShiftSizzle",
     locationName: "",
-    schedulerName: "",
     publishNotifications: true,
     shiftTypes: [...BASE_SHIFT_TYPES],
     shiftTimes: normalizeShiftTimes({}, BASE_SHIFT_TYPES),
@@ -1573,6 +1640,89 @@ const appStateReducer = (state, action) => {
             role,
             state.employees,
             buildAssignments(state.employees, role, requirements, state.schedule.assignments, shiftTypes, operatingHours),
+            shiftTypes,
+            operatingHours
+          ),
+        },
+      };
+    }
+    // Replaces one role's assignments with an externally-produced list of
+    // picks (the AI schedule draft), keeping every rule the reducer enforces
+    // — availability, the cross-role weekly cap, no same-day/same-shift
+    // double-booking, no duplicates. Picks that would break a rule are
+    // dropped, so a bad draft can only under-fill, never mis-schedule.
+    case "APPLY_ROLE_ASSIGNMENTS": {
+      const { role, picks = [] } = action.payload ?? {};
+
+      if (!role) {
+        return state;
+      }
+
+      const shiftTypes = getShiftTypes(state.settings);
+      const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
+      const openDays = DAYS.filter((day) => operatingHours[day]?.isOpen);
+      const employeesById = Object.fromEntries(state.employees.map((employee) => [employee.id, employee]));
+      const otherRoles = Object.fromEntries(
+        Object.entries(state.schedule.assignments ?? {}).filter(([otherRole]) => otherRole !== role)
+      );
+
+      const nextRoleBucket = Object.fromEntries(state.employees.map((employee) => [employee.id, {}]));
+
+      picks.forEach(({ employeeId, day, shift }) => {
+        const employee = employeesById[employeeId];
+
+        if (
+          !employee
+          || employee.status === "archived"
+          || !(employee.roles ?? []).includes(role)
+          || !openDays.includes(day)
+          || !shiftTypes.includes(shift)
+        ) {
+          return;
+        }
+
+        const currentDay = nextRoleBucket[employeeId][day] ?? [];
+
+        if (currentDay.includes(shift)) {
+          return;
+        }
+
+        if (!(employee.availability?.[day] ?? []).includes(shift)) {
+          return;
+        }
+
+        const doubleBooked = Object.values(otherRoles).some(
+          (bucket) => (bucket[employeeId]?.[day] ?? []).includes(shift)
+        );
+
+        if (doubleBooked) {
+          return;
+        }
+
+        const assignedThisRole = openDays.reduce(
+          (total, openDay) => total + (nextRoleBucket[employeeId][openDay] ?? []).length,
+          0,
+        );
+        const assignedOtherRoles = countAssignedShiftsForEmployee(otherRoles, employeeId, operatingHours);
+
+        if (assignedThisRole + assignedOtherRoles >= normalizeShiftsPerWeek(employee)) {
+          return;
+        }
+
+        nextRoleBucket[employeeId][day] = [...currentDay, shift];
+      });
+
+      return {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          hasUnsavedChanges: true,
+          status: "draft",
+          assignments: setAssignmentsForRole(
+            state.schedule.assignments,
+            role,
+            state.employees,
+            nextRoleBucket,
             shiftTypes,
             operatingHours
           ),

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppStateProvider } from '../../state/AppState';
@@ -66,13 +67,15 @@ const renderScheduler = async (seed = {}) => {
   seedFakeSupabase(supabase, seed);
 
   render(
-    <AuthProvider>
-      <AppStateProvider>
-        <HydrationGate>
-          <Scheduler />
-        </HydrationGate>
-      </AppStateProvider>
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <AppStateProvider>
+          <HydrationGate>
+            <Scheduler />
+          </HydrationGate>
+        </AppStateProvider>
+      </AuthProvider>
+    </MemoryRouter>
   );
 
   // The action bar's Publish button is present as soon as a configured org
@@ -118,7 +121,11 @@ describe('Scheduler view', () => {
     window.history.replaceState({}, '', '/schedule/build?weekStart=2026-05-25&role=Manager');
 
     await renderScheduler({
-      settings: { weekStartsOn: 'Monday' },
+      settings: {
+        weekStartsOn: 'Monday',
+        operatingHours: singleDayOperatingHours,
+        roleCoverage: { Manager: { Monday: { Open: 1 } } },
+      },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
     });
 
@@ -206,7 +213,7 @@ describe('Scheduler view', () => {
         endDate: '2026-05-30',
         role: 'Manager',
         status: 'draft',
-        requirements: grid(0),
+        requirements: grid(1),
         assignments: { 1: emptyAssignments() },
       }],
     });
@@ -279,24 +286,18 @@ describe('Scheduler view', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
   });
 
-  it('disables auto-fill when no shift has a coverage target', async () => {
+  it('gates the builder behind a readiness checklist until coverage targets exist', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
       employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
-      schedules: [{
-        weekLabel: 'May 24 - May 30, 2026',
-        startDate: '2026-05-24',
-        endDate: '2026-05-30',
-        role: 'Manager',
-        status: 'draft',
-        requirements: grid(0),
-        assignments: { 1: emptyAssignments() },
-      }],
     });
 
-    selectWeek('2026-05-24');
-
-    expect(screen.getByRole('button', { name: 'Auto-fill' })).toBeDisabled();
+    // Week + hours + team are set, but there are no coverage targets — the
+    // checklist takes over the builder body instead of an empty Day builder.
+    expect(screen.getByRole('heading', { name: 'Finish setup to build this week' })).toBeInTheDocument();
+    expect(screen.getByText('Set coverage targets')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Auto-fill' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^Monday/ })).not.toBeInTheDocument();
   });
 
   it('candidate panel disables an employee already at the weekly shift cap', async () => {

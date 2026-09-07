@@ -19,8 +19,7 @@
     }
   }
 
-  // Bare page header that sits on the app background, above the panel —
-  // mirrors .team__control-copy on the Team roster screen.
+  // Bare page header that sits on the app background, above the panel.
   &__page-intro {
     margin: 10px 20px 16px;
     max-width: 44rem;
@@ -57,11 +56,6 @@
     }
   }
 
-  &__new-schedule-action {
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-
   &__subhead {
     margin: 0.35rem 0 0;
     font-size: 0.93rem;
@@ -74,146 +68,82 @@
     font-size: 0.9rem;
   }
 
-  &__history-controls {
-    margin-top: 1rem;
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    gap: 0.75rem;
-    align-items: center;
-  }
-
-  &__history-nav {
-    border: 1px solid rgba(15, 23, 42, 0.16);
-    background: #fff;
-    color: #1e293b;
-    border-radius: 10px;
-    padding: 0.45rem 0.75rem;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-  }
-
-  &__history-select-label {
-    font-size: 0.9rem;
-    color: #475569;
-  }
-
-  &__history-select {
-    min-width: 0;
-    border: 1px solid rgba(15, 23, 42, 0.14);
-    border-radius: 10px;
-    background: #fff;
-    padding: 0.5rem 0.7rem;
-    font: inherit;
-  }
-
-  &__filters-toggle {
-    display: none;
+  // ---- list view ----
+  &__list-head {
+    display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    margin-top: 0.9rem;
-    padding: 10px 14px;
-    border: 1px solid rgba(15, 23, 42, 0.14);
-    border-radius: 10px;
-    background: #fff;
-    color: #1e293b;
-    cursor: pointer;
-    font: inherit;
-    font-weight: 700;
-
-    span {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-  }
-
-  &__filters {
-    margin-top: 0.9rem;
-  }
-
-  &__filters-inner {
-    display: grid;
-    grid-template-columns: minmax(220px, 1.2fr) minmax(160px, 1fr) auto;
     gap: 0.75rem;
-    align-items: end;
+    flex-wrap: wrap;
   }
 
-  &__filter-field {
-    display: grid;
+  &__pills {
+    display: inline-flex;
     gap: 0.3rem;
-
-    label {
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: #475569;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    input,
-    select {
-      border: 1px solid rgba(15, 23, 42, 0.14);
-      border-radius: 10px;
-      background: #fff;
-      padding: 0.5rem 0.7rem;
-      font: inherit;
-      color: #1e293b;
-    }
+    padding: 0.28rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.05);
   }
 
-  &__filtered-count {
-    margin-top: 0.8rem;
-    font-size: 0.86rem;
+  &__pill {
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
     color: #475569;
-    font-weight: 600;
-  }
-
-  &__filter-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  &__filter-reset {
-    border: 1px solid rgba(15, 23, 42, 0.16);
-    background: #fff;
-    color: #1e293b;
-    border-radius: 10px;
-    padding: 0.5rem 0.75rem;
+    padding: 0.42rem 0.85rem;
     font: inherit;
+    font-size: 0.85rem;
     font-weight: 700;
     cursor: pointer;
 
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
+    &.is-active {
+      background: #fff;
+      color: #14213d;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
     }
   }
 
-  &__list {
+  &__new-schedule-action {
+    flex-shrink: 0;
+    white-space: nowrap;
+    border-radius: 14px;
+  }
+
+  &__empty-filtered {
+    margin: 1.1rem 0 0.3rem;
+    color: #475569;
+  }
+
+  &__weeks {
     margin: 0.9rem 0 0;
     padding: 0;
     list-style: none;
     display: grid;
     gap: 0.6rem;
+
+    > li {
+      animation: history-rise-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+      @for $i from 1 through 8 {
+        &:nth-child(#{$i}) {
+          animation-delay: #{$i * 40}ms;
+        }
+      }
+
+      &:nth-child(n+9) {
+        animation-delay: 320ms;
+      }
+    }
   }
 
-  &__list-item {
+  &__week {
     width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
+    display: grid;
+    gap: 0.45rem;
     border: 1px solid rgba(15, 23, 42, 0.1);
-    border-radius: 12px;
+    border-radius: 14px;
     background: #fff;
-    padding: 0.75rem 1rem;
+    padding: 0.85rem 1rem;
     text-align: left;
     cursor: pointer;
     font: inherit;
@@ -224,65 +154,50 @@
     }
   }
 
-  &__list > li {
-    animation: history-rise-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
-
-    @for $i from 1 through 8 {
-      &:nth-child(#{$i}) {
-        animation-delay: #{$i * 40}ms;
-      }
-    }
-
-    &:nth-child(n+9) {
-      animation-delay: 320ms;
-    }
-  }
-
-  &__list-item-main {
-    display: grid;
-    gap: 0.15rem;
-    min-width: 180px;
+  &__week-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
 
     strong {
       color: #14213d;
-      font-size: 0.95rem;
-    }
-
-    span {
-      color: #475569;
-      font-size: 0.84rem;
+      font-size: 0.98rem;
     }
   }
 
-  &__list-item-meta {
-    margin-left: auto;
-    display: grid;
-    gap: 0.15rem;
-    text-align: right;
-    font-size: 0.8rem;
-    color: #64748b;
-  }
-
-  &__detail-actions {
+  &__week-meta {
     display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.85rem;
+    color: #64748b;
+    font-size: 0.82rem;
   }
 
-  // Mirrors .team__empty-state / --onboarding so the first-run Schedule
-  // screen reads like the first-run Team roster screen.
+  &__week-roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  &__role-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.16rem 0.55rem;
+    background: rgba(15, 23, 42, 0.06);
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+
+  // ---- onboarding empty state ----
   &__empty-state {
     margin-top: 0.9rem;
     border: 1px dashed rgba(15, 23, 42, 0.2);
     border-radius: 12px;
     background: rgba(248, 250, 252, 0.85);
     padding: 0.9rem;
-
-    h3 {
-      margin: 0;
-      color: #14213d;
-    }
 
     p {
       margin: 0;
@@ -302,8 +217,6 @@
     }
   }
 
-  // Mirrors .team__availability-summary-label, but in the ShiftSizzle brand
-  // orange (BrandTheme.scss recolours the Team label to this same tone).
   &__eyebrow {
     display: block;
     font-size: 0.78rem;
@@ -326,12 +239,11 @@
     justify-content: center;
   }
 
-  // Rounder than the base .button, but keeps its brand-orange gradient and
-  // shadow rather than overriding them.
   &__primary-action {
     border-radius: 14px;
   }
 
+  // ---- week detail ----
   &__published-note {
     margin-top: 0.95rem;
     padding: 0.95rem;
@@ -354,91 +266,15 @@
     }
   }
 
-
-
-  &__review-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
-    gap: 0.85rem;
-  }
-
-  &__review-card {
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 12px;
-    padding: 0.85rem;
-    background: #fff;
-
-    h3 {
-      margin: 0 0 0.45rem;
-      font-size: 1rem;
-    }
-
-    p {
-      margin: 0.2rem 0;
-      color: #334155;
-    }
+  &__detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
   }
 
   &__section-title {
     margin: 0 0 1rem;
-  }
-
-  &__section-copy {
-    margin: 0 0 0.9rem;
-    color: #475569;
-    font-size: 0.9rem;
-  }
-
-  &__assignment-controls {
-    margin: 0 0 0.9rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  &__assignment-context {
-    margin: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.6rem;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.06);
-    color: #334155;
-    font-size: 0.82rem;
-
-    strong {
-      color: #14213d;
-    }
-  }
-
-  &__layout-toggle {
-    display: inline-flex;
-    gap: 0.35rem;
-    padding: 0.35rem;
-    border-radius: 12px;
-    background: rgba(37, 99, 235, 0.08);
-    margin: 0;
-  }
-
-  &__layout-toggle-button {
-    border: 0;
-    border-radius: 10px;
-    background: transparent;
-    color: #475569;
-    padding: 0.42rem 0.72rem;
-    font: inherit;
-    font-size: 0.84rem;
-    font-weight: 700;
-    cursor: pointer;
-
-    &.is-active {
-      background: #fff;
-      color: #14213d;
-      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-    }
   }
 
   &__assignment-shell {
@@ -450,7 +286,7 @@
 
   &__assignment-table {
     width: 100%;
-    min-width: 860px;
+    min-width: 720px;
     border-collapse: collapse;
 
     th,
@@ -475,12 +311,21 @@
     }
   }
 
-  &__assignment-table--day-first {
-    min-width: 760px;
-  }
-
   &__employee-cell {
     white-space: nowrap;
+
+    strong {
+      display: block;
+      color: #14213d;
+    }
+  }
+
+  &__role-tag {
+    display: inline-block;
+    margin-top: 0.15rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #64748b;
   }
 
   &__total-chip {
@@ -523,77 +368,47 @@
     color: #64748b;
   }
 
-  &__day-coverage {
-    margin-top: 0.95rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.65rem;
+  // ---- coverage-by-day strip ----
+  &__day-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
-  &__day-coverage-item {
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 10px;
-    padding: 0.65rem 0.7rem;
-    background: rgba(248, 250, 252, 0.7);
-
-    h4 {
-      margin: 0;
-      font-size: 0.88rem;
-    }
-
-    p {
-      margin: 0.25rem 0 0;
-      font-size: 0.79rem;
-      color: #475569;
-    }
-  }
-
-  &__day-coverage-status {
-    margin-top: 0.45rem;
+  &__day-chip {
     display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 0.16rem 0.5rem;
-    font-size: 0.72rem;
-    font-weight: 700;
+    align-items: baseline;
+    gap: 0.4rem;
+    border-radius: 10px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border: 1px solid transparent;
 
-    &.is-filled {
+    strong {
+      font-size: 0.74rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    &.is-full {
       background: rgba(34, 197, 94, 0.14);
       color: #166534;
     }
 
-    &.is-open {
+    &.is-partial {
       background: rgba(245, 158, 11, 0.16);
       color: #9a6700;
     }
-  }
 
-  &__issues {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(15, 23, 42, 0.08);
-
-    h3 {
-      margin: 0 0 0.45rem;
-      font-size: 1rem;
+    &.is-none {
+      background: rgba(239, 68, 68, 0.12);
+      color: #b91c1c;
     }
 
-    ul {
-      margin: 0.3rem 0;
-      padding-left: 1.1rem;
-      color: #475569;
-    }
-  }
-
-  &__issue-group + &__issue-group {
-    margin-top: 0.85rem;
-  }
-
-  &__issue-group {
-    h4 {
-      margin: 0 0 0.3rem;
-      font-size: 0.88rem;
-      color: #14213d;
+    &.is-empty {
+      background: rgba(15, 23, 42, 0.05);
+      color: #64748b;
     }
   }
 }
@@ -605,68 +420,22 @@
       align-items: stretch;
     }
 
-    &__new-schedule-action {
-      justify-content: center;
-    }
-
-    &__history-controls {
-      grid-template-columns: 1fr 1fr;
-    }
-
-    &__filters-toggle {
-      display: flex;
-    }
-
-    &__filters {
-      display: grid;
-      grid-template-rows: 0fr;
-      transition: grid-template-rows 240ms ease;
-
-      &.is-expanded {
-        grid-template-rows: 1fr;
-      }
-    }
-
-    &__filters-inner {
-      grid-template-columns: 1fr;
-      min-height: 0;
-      overflow: hidden;
-      padding: 1rem;
-      border: 1px solid rgba(15, 23, 42, 0.1);
-      border-radius: 14px;
-      background: #fff;
-      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-    }
-
-    &__filter-actions {
-      justify-content: flex-start;
-    }
-
-    &__history-select-label,
-    &__history-select {
-      grid-column: 1 / -1;
-    }
-
-    &__review-grid {
-      grid-template-columns: 1fr;
-    }
-
-    &__assignment-table {
-      min-width: 720px;
-    }
-
-    &__layout-toggle {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-    }
-
-    &__assignment-controls {
+    &__list-head {
+      flex-direction: column-reverse;
       align-items: stretch;
     }
 
-    &__assignment-context {
-      width: fit-content;
+    &__pills {
+      justify-content: space-between;
+    }
+
+    &__pill {
+      flex: 1;
+      text-align: center;
+    }
+
+    &__new-schedule-action {
+      justify-content: center;
     }
 
     &__published-note {
@@ -674,13 +443,9 @@
       align-items: stretch;
     }
 
-    &__list-item {
-      flex-wrap: wrap;
-    }
-
-    &__list-item-meta {
-      margin-left: 0;
-      text-align: left;
+    &__detail-actions {
+      flex-direction: column-reverse;
+      align-items: stretch;
     }
   }
 }

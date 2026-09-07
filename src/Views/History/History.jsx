@@ -1,40 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Button, ContentPanel, StatusBadge } from '../../Components';
-import { getOpenDays, getShiftTypes, useAppState } from '../../state/AppState';
+import {
+  calculateScheduleReview,
+  coverageStatus,
+  getOpenDays,
+  getShiftTypes,
+  normalizeOperatingHours,
+  useAppState,
+} from '../../state/AppState';
 import { useAuth } from '../../state/AuthState';
 
 import './History.scss';
 
-const ASSIGNMENT_LAYOUT_STORAGE_KEY = 'shiftsizzle.history-assignment-layout';
+// This page is the read-only archive of what's been scheduled — one row per
+// week, newest first. Building and fixing schedules lives in the builder
+// (/schedule/build); the live coverage/gap analytics live there and on the
+// Dashboard, so they're intentionally not repeated here.
 
-const getInitialAssignmentLayout = () => {
-  if (typeof window === 'undefined') {
-    return 'employee';
-  }
-
-  const storedLayout = window.sessionStorage.getItem(ASSIGNMENT_LAYOUT_STORAGE_KEY);
-  return storedLayout === 'day' ? 'day' : 'employee';
-};
-
-const getInitialQueryValue = (key, fallback = '') => {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-
-  const value = new URLSearchParams(window.location.search).get(key);
-  return value ?? fallback;
-};
-
-const redirectToBuilder = (queryString = '') => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const search = queryString ? `?${queryString}` : '';
-  window.history.replaceState({}, '', `${window.location.pathname}${search}${window.location.hash}`);
-  window.location.hash = '/schedule/build';
-};
+const STATUS_PILLS = [
+  { value: 'all', label: 'All' },
+  { value: 'published', label: 'Published' },
+  { value: 'draft', label: 'In progress' },
+];
 
 const formatTimestamp = (value) => new Date(value).toLocaleString([], {
   month: 'short',
@@ -43,18 +32,12 @@ const formatTimestamp = (value) => new Date(value).toLocaleString([], {
   minute: '2-digit',
 });
 
-const getEntryActivityLabel = (entry) => (
-  entry.status === 'published' && entry.publishedAt
-    ? `Published ${formatTimestamp(entry.publishedAt)}`
-    : entry.savedAt
-      ? `Saved ${formatTimestamp(entry.savedAt)}`
-      : ''
-);
+const readParam = (key, fallback = '') => {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
 
-const STATUS_FILTER_LABELS = {
-  all: 'All statuses',
-  draft: 'In progress',
-  published: 'Published',
+  return new URLSearchParams(window.location.search).get(key) ?? fallback;
 };
 
 export const History = () => {
@@ -62,70 +45,94 @@ export const History = () => {
     state: { employees, schedules, settings },
   } = useAppState();
   const { membership } = useAuth();
-  const canManageSchedules = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
+  const navigate = useNavigate();
+  const canManage = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
 
-  // On phones the first-run (empty) Schedule screen paints the app
-  // background to match the header, so the onboarding card floats on it —
-  // same treatment as the Dashboard view.
-  useEffect(() => {
-    document.body.classList.toggle('history-empty-view', schedules.length === 0);
-    return () => document.body.classList.remove('history-empty-view');
-  }, [schedules.length]);
+  const [selectedWeek, setSelectedWeek] = useState(() => readParam('week'));
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const value = readParam('status', 'all');
+    return STATUS_PILLS.some((pill) => pill.value === value) ? value : 'all';
+  });
 
   const openDays = getOpenDays(settings);
   const shiftTypes = getShiftTypes(settings);
-
-  const [selectedId, setSelectedId] = useState(() => getInitialQueryValue('schedule', ''));
-  const [filterRole, setFilterRole] = useState(() => getInitialQueryValue('role', 'all'));
-  const [filterStatus, setFilterStatus] = useState(() => getInitialQueryValue('status', 'all'));
-  const [assignmentLayout, setAssignmentLayout] = useState(getInitialAssignmentLayout);
-  const [showFilters, setShowFilters] = useState(false);
-
-  const sortedSchedules = useMemo(
-    () => [...schedules].sort((a, b) => {
-      const aTime = new Date(a.publishedAt || a.savedAt || a.createdAt || 0).getTime();
-      const bTime = new Date(b.publishedAt || b.savedAt || b.createdAt || 0).getTime();
-
-      return bTime - aTime;
-    }),
-    [schedules],
+  const operatingHours = useMemo(
+    () => normalizeOperatingHours(settings.operatingHours),
+    [settings.operatingHours],
   );
 
-  const availableRoles = useMemo(
-    () => Array.from(new Set(schedules.map((entry) => entry.role).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
-    [schedules],
-  );
+  // Every saved/published record, grouped into weeks. Each week rolls its
+  // per-role records up into one entry: combined fill totals, the newest
+  // notes, and a single status (published only when every role is).
+  const weeks = useMemo(() => {
+    const byWeek = new Map();
 
-  const filteredEntries = useMemo(
-    () => sortedSchedules.filter((entry) => {
-      if (filterRole !== 'all' && entry.role !== filterRole) {
-        return false;
+    schedules.forEach((record) => {
+      const review = calculateScheduleReview({
+        assignments: record.assignments ?? {},
+        requirements: record.requirements ?? {},
+        employees,
+        selectedRole: record.role,
+        shiftTypes,
+        operatingHours,
+      });
+
+      if (!byWeek.has(record.startDate)) {
+        byWeek.set(record.startDate, {
+          startDate: record.startDate,
+          endDate: record.endDate,
+          weekLabel: record.weekLabel || `${record.startDate} - ${record.endDate}`,
+          notes: '',
+          notesAt: 0,
+          lastActivity: 0,
+          roles: [],
+        });
       }
 
-      if (filterStatus !== 'all' && entry.status !== filterStatus) {
-        return false;
+      const week = byWeek.get(record.startDate);
+      const timestamp = Math.max(
+        record.publishedAt ? new Date(record.publishedAt).getTime() : 0,
+        record.savedAt ? new Date(record.savedAt).getTime() : 0,
+      );
+
+      week.lastActivity = Math.max(week.lastActivity, timestamp);
+
+      if ((record.notes ?? '').trim() && timestamp >= week.notesAt) {
+        week.notes = record.notes.trim();
+        week.notesAt = timestamp;
       }
 
-      return true;
-    }),
-    [sortedSchedules, filterRole, filterStatus],
-  );
+      week.roles.push({
+        record,
+        role: record.role,
+        status: record.status,
+        filled: review.metrics.assignedSlots,
+        required: review.metrics.requiredSlots,
+      });
+    });
 
-  useEffect(() => {
-    window.sessionStorage.setItem(ASSIGNMENT_LAYOUT_STORAGE_KEY, assignmentLayout);
-  }, [assignmentLayout]);
+    return [...byWeek.values()]
+      .map((week) => {
+        const roles = [...week.roles].sort((a, b) => a.role.localeCompare(b.role));
 
-  useEffect(() => {
-    if (filterRole !== 'all' && !availableRoles.includes(filterRole)) {
-      setFilterRole('all');
-    }
-  }, [availableRoles, filterRole]);
+        return {
+          ...week,
+          roles,
+          filled: roles.reduce((total, entry) => total + entry.filled, 0),
+          required: roles.reduce((total, entry) => total + entry.required, 0),
+          status: roles.length && roles.every((entry) => entry.status === 'published') ? 'published' : 'draft',
+        };
+      })
+      .sort((a, b) => b.lastActivity - a.lastActivity);
+  }, [schedules, employees, shiftTypes, operatingHours]);
 
-  useEffect(() => {
-    if (selectedId && !schedules.some((entry) => entry.id === selectedId)) {
-      setSelectedId('');
-    }
-  }, [schedules, selectedId]);
+  const filteredWeeks = statusFilter === 'all'
+    ? weeks
+    : weeks.filter((week) => week.status === statusFilter);
+
+  const selectedWeekObj = selectedWeek
+    ? weeks.find((week) => week.startDate === selectedWeek) ?? null
+    : null;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -133,120 +140,45 @@ export const History = () => {
     }
 
     const params = new URLSearchParams(window.location.search);
+    ['role', 'schedule', 'range', 'start', 'end'].forEach((key) => params.delete(key));
 
-    if (filterRole !== 'all') {
-      params.set('role', filterRole);
-    } else {
-      params.delete('role');
-    }
-
-    if (filterStatus !== 'all') {
-      params.set('status', filterStatus);
+    if (statusFilter !== 'all') {
+      params.set('status', statusFilter);
     } else {
       params.delete('status');
     }
 
-    params.delete('range');
-    params.delete('start');
-    params.delete('end');
-
-    if (selectedId) {
-      params.set('schedule', selectedId);
+    if (selectedWeek) {
+      params.set('week', selectedWeek);
     } else {
-      params.delete('schedule');
+      params.delete('week');
     }
 
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
-  }, [filterRole, filterStatus, selectedId]);
+    const search = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+  }, [statusFilter, selectedWeek]);
 
-  const hasActiveFilters = filterRole !== 'all' || filterStatus !== 'all';
-  const selectedEntry = selectedId ? (schedules.find((entry) => entry.id === selectedId) ?? null) : null;
+  useEffect(() => {
+    if (selectedWeek && !weeks.some((week) => week.startDate === selectedWeek)) {
+      setSelectedWeek('');
+    }
+  }, [weeks, selectedWeek]);
 
-  const resetFilters = () => {
-    setFilterRole('all');
-    setFilterStatus('all');
-  };
-
-  const filterControls = (
-    <>
-      <button
-        type="button"
-        className="history__filters-toggle"
-        onClick={() => setShowFilters((current) => !current)}
-        aria-expanded={showFilters}
-        aria-controls="history-filters-panel"
-      >
-        <span>
-          <i className="fas fa-sliders" aria-hidden="true" />
-          Filters
-        </span>
-        <i className={`fas fa-chevron-${showFilters ? 'up' : 'down'}`} aria-hidden="true" />
-      </button>
-      <section
-        id="history-filters-panel"
-        className={`history__filters ${showFilters ? 'is-expanded' : ''}`.trim()}
-        aria-label="Schedule history filters"
-      >
-        <div className="history__filters-inner">
-          <div className="history__filter-field">
-            <label htmlFor="history-filter-role">Role</label>
-            <select
-              id="history-filter-role"
-              value={filterRole}
-              onChange={(event) => setFilterRole(event.target.value)}
-            >
-              <option value="all">All roles</option>
-              {availableRoles.map((role) => (
-                <option key={`role-filter-${role}`} value={role}>{role}</option>
-              ))}
-            </select>
-          </div>
-          <div className="history__filter-field">
-            <label htmlFor="history-filter-status">Status</label>
-            <select
-              id="history-filter-status"
-              value={filterStatus}
-              onChange={(event) => setFilterStatus(event.target.value)}
-            >
-              {Object.entries(STATUS_FILTER_LABELS).map(([value, label]) => (
-                <option key={`status-filter-${value}`} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="history__filter-actions">
-            <button
-              type="button"
-              className="history__filter-reset"
-              onClick={resetFilters}
-              disabled={!hasActiveFilters}
-            >
-              Reset filters
-            </button>
-          </div>
-        </div>
-      </section>
-    </>
-  );
+  const openBuilder = (query = '') => navigate(`/schedule/build${query ? `?${query}` : ''}`);
 
   if (!schedules.length) {
     return (
       <div className="history">
         <div className="history__page-intro">
-          <h2>Schedule history</h2>
-          <p>Review every schedule you&apos;ve saved or published.</p>
+          <h2>Schedules</h2>
+          <p>Every week you&apos;ve saved or published shows up here.</p>
         </div>
         <ContentPanel className="history__empty-state history__empty-state--onboarding">
           <span className="history__eyebrow">Start your schedule</span>
           <p>You haven&apos;t saved or published any schedules yet.</p>
-          {canManageSchedules && (
+          {canManage && (
             <div className="history__empty-state-actions">
-              <Button
-                type="button"
-                className="history__primary-action"
-                onClick={() => redirectToBuilder()}
-              >
+              <Button type="button" className="history__primary-action" onClick={() => openBuilder()}>
                 <span className="history__action-icon" aria-hidden="true">
                   <i className="fas fa-plus" />
                 </span>
@@ -259,20 +191,34 @@ export const History = () => {
     );
   }
 
-  if (!selectedEntry) {
+  if (!selectedWeekObj) {
     return (
       <div className="history" key="list">
+        <div className="history__page-intro">
+          <h2>Schedules</h2>
+          <p>Every week you&apos;ve saved or published, newest first.</p>
+        </div>
         <ContentPanel>
-          <div className="history__page-header">
-            <div className="history__page-copy">
-              <h2>All schedules</h2>
-              <p className="history__subhead">Every schedule you've saved or published, newest first.</p>
+          <div className="history__list-head">
+            <div className="history__pills" role="tablist" aria-label="Filter schedules by status">
+              {STATUS_PILLS.map((pill) => (
+                <button
+                  key={pill.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={statusFilter === pill.value}
+                  className={`history__pill ${statusFilter === pill.value ? 'is-active' : ''}`.trim()}
+                  onClick={() => setStatusFilter(pill.value)}
+                >
+                  {pill.label}
+                </button>
+              ))}
             </div>
-            {canManageSchedules && (
+            {canManage && (
               <Button
                 type="button"
                 className="history__primary-action history__new-schedule-action"
-                onClick={() => redirectToBuilder()}
+                onClick={() => openBuilder()}
               >
                 <span className="history__action-icon" aria-hidden="true">
                   <i className="fas fa-plus" />
@@ -282,32 +228,30 @@ export const History = () => {
             )}
           </div>
 
-          {filterControls}
-
-          {filteredEntries.length === 0 ? (
-            <section className="history__empty-state" aria-label="No matching schedules">
-              <h3>No matching schedules</h3>
-              <p>No schedules match the selected role and status filters.</p>
-              <p>Use Reset filters to return to all schedules.</p>
-            </section>
+          {filteredWeeks.length === 0 ? (
+            <p className="history__empty-filtered">
+              {statusFilter === 'published' ? 'No published schedules yet.' : 'Nothing in progress right now.'}
+            </p>
           ) : (
-            <ul className="history__list" aria-label="Schedule list">
-              {filteredEntries.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    className="history__list-item"
-                    onClick={() => setSelectedId(entry.id)}
-                  >
-                    <div className="history__list-item-main">
-                      <strong>{entry.weekLabel || `${entry.startDate} - ${entry.endDate}`}</strong>
-                      <span>{entry.role}</span>
+            <ul className="history__weeks" aria-label="Schedule list">
+              {filteredWeeks.map((week) => (
+                <li key={week.startDate}>
+                  <button type="button" className="history__week" onClick={() => setSelectedWeek(week.startDate)}>
+                    <div className="history__week-top">
+                      <strong>{week.weekLabel}</strong>
+                      <StatusBadge status={week.status} />
                     </div>
-                    <div className="history__list-item-meta">
-                      <span>{entry.metrics?.assignedSlots ?? 0}/{entry.metrics?.requiredSlots ?? 0} assigned</span>
-                      <span>{getEntryActivityLabel(entry)}</span>
+                    <div className="history__week-meta">
+                      <span>{week.filled}/{week.required} slots filled</span>
+                      {week.lastActivity > 0 && <span>{formatTimestamp(week.lastActivity)}</span>}
                     </div>
-                    <StatusBadge status={entry.status} />
+                    <div className="history__week-roles">
+                      {week.roles.map((entry) => (
+                        <span key={entry.role} className="history__role-chip">
+                          {entry.role} {entry.filled}/{entry.required}
+                        </span>
+                      ))}
+                    </div>
                   </button>
                 </li>
               ))}
@@ -318,89 +262,83 @@ export const History = () => {
     );
   }
 
-  const roleEmployees = employees.filter(
-    (employee) => employee.status !== 'archived' && employee.roles.includes(selectedEntry.role)
-  );
-  const assignments = selectedEntry.assignments ?? {};
-  const requirements = selectedEntry.requirements ?? {};
-  const coverageGaps = selectedEntry.coverageGaps ?? [];
-  const shiftCapAlerts = selectedEntry.shiftCapAlerts ?? [];
-  const metrics = selectedEntry.metrics ?? { requiredSlots: 0, assignedSlots: 0, openSlots: 0, roleEmployeeCount: roleEmployees.length };
-  const assignedEmployees = roleEmployees.filter((employee) =>
-    openDays.some((day) => (assignments[employee.id]?.[day] ?? []).length > 0)
-  );
+  const week = selectedWeekObj;
+  const employeesById = Object.fromEntries(employees.map((employee) => [employee.id, employee]));
+  const unfilled = week.required - week.filled;
 
-  const assignmentRows = assignedEmployees.map((employee) => {
-    const totalAssigned = openDays.reduce(
-      (total, day) => total + ((assignments[employee.id]?.[day] ?? []).length),
-      0,
-    );
+  const rows = [];
+  week.roles.forEach(({ record, role }) => {
+    const assignments = record.assignments ?? {};
 
-    return {
-      employee,
-      totalAssigned,
-      dailyAssignments: Object.fromEntries(
-        openDays.map((day) => [day, assignments[employee.id]?.[day] ?? []]),
-      ),
-    };
+    Object.keys(assignments).forEach((employeeId) => {
+      const byDay = Object.fromEntries(openDays.map((day) => [day, assignments[employeeId]?.[day] ?? []]));
+      const total = openDays.reduce((count, day) => count + byDay[day].length, 0);
+
+      if (total === 0) {
+        return;
+      }
+
+      rows.push({
+        key: `${role}-${employeeId}`,
+        name: employeesById[employeeId]?.name ?? 'Former team member',
+        role,
+        byDay,
+        total,
+      });
+    });
   });
+  rows.sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
 
-  const dailyCoverageRows = openDays.map((day) => {
-    const required = shiftTypes.reduce(
-      (total, shift) => total + Number(requirements?.[day]?.[shift] ?? 0),
-      0,
-    );
-    const assigned = roleEmployees.reduce(
-      (total, employee) => total + ((assignments[employee.id]?.[day] ?? []).length),
-      0,
-    );
+  const dayCoverage = openDays.map((day) => {
+    let required = 0;
+    let assigned = 0;
 
-    return {
-      day,
-      required,
-      assigned,
-      open: Math.max(required - assigned, 0),
-    };
+    week.roles.forEach(({ record }) => {
+      shiftTypes.forEach((shift) => {
+        required += Number(record.requirements?.[day]?.[shift] ?? 0);
+      });
+      Object.values(record.assignments ?? {}).forEach((employeeDays) => {
+        assigned += (employeeDays?.[day] ?? []).length;
+      });
+    });
+
+    return { day, required, assigned, status: coverageStatus(assigned, required) };
   });
-
-  const dayFirstRows = openDays.map((day) => {
-    const coverage = dailyCoverageRows.find((row) => row.day === day) ?? { required: 0, assigned: 0, open: 0 };
-
-    return {
-      day,
-      ...coverage,
-      employeeAssignments: assignedEmployees.map((employee) => ({
-        employee,
-        shifts: assignments[employee.id]?.[day] ?? [],
-      })),
-    };
-  });
-
-  const schedulerQuery = `weekStart=${encodeURIComponent(selectedEntry.startDate ?? '')}&role=${encodeURIComponent(selectedEntry.role ?? '')}`;
 
   return (
-    <div className="history" key={selectedEntry.id}>
+    <div className="history" key={week.startDate}>
       <ContentPanel>
         <div className="history__page-header">
           <div className="history__page-copy">
-            <h2>{selectedEntry.weekLabel || 'Schedule'}</h2>
-            <p className="history__subhead">{selectedEntry.role} coverage for {selectedEntry.weekLabel}.</p>
-            <p className="history__publish-meta">{getEntryActivityLabel(selectedEntry)}</p>
+            <h2>{week.weekLabel}</h2>
+            <p className="history__subhead">
+              {week.filled} of {week.required} slots filled{unfilled > 0 ? ` · ${unfilled} unfilled` : ''}
+            </p>
+            {week.lastActivity > 0 && (
+              <p className="history__publish-meta">
+                {week.status === 'published' ? 'Published' : 'Last saved'} {formatTimestamp(week.lastActivity)}
+              </p>
+            )}
           </div>
-          <StatusBadge status={selectedEntry.status} />
+          <StatusBadge status={week.status} />
         </div>
+
         <section className="history__published-note" aria-label="Notes panel">
           <div>
             <h3>Notes</h3>
-            <p>{selectedEntry.notes?.trim() || 'No notes were recorded for this schedule.'}</p>
+            <p>{week.notes || 'No notes were recorded for this week.'}</p>
           </div>
           <div className="history__detail-actions">
-            <button type="button" className="button-outline" onClick={() => setSelectedId('')}>
+            <button type="button" className="button-outline" onClick={() => setSelectedWeek('')}>
               Back to all schedules
             </button>
-            {canManageSchedules && (
-              <button type="button" className="button" onClick={() => redirectToBuilder(schedulerQuery)}>
-                Edit Schedule
+            {canManage && (
+              <button
+                type="button"
+                className="button"
+                onClick={() => openBuilder(`weekStart=${encodeURIComponent(week.startDate)}`)}
+              >
+                Edit in builder
               </button>
             )}
           </div>
@@ -408,192 +346,59 @@ export const History = () => {
       </ContentPanel>
 
       <ContentPanel>
-        <h3 className="history__section-title">Shift Assignments</h3>
-        <p className="history__section-copy">Review staffing by team member and compare day-level required versus assigned coverage.</p>
-        <div className="history__assignment-controls">
-          <p className="history__assignment-context" aria-label="Selected assignment schedule context">
-            <strong>{selectedEntry.role || 'Role not set'}</strong>
-            <span>{selectedEntry.weekLabel}</span>
-          </p>
-
-          {assignmentRows.length > 0 && (
-            <div className="history__layout-toggle" role="tablist" aria-label="Assignment layout">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={assignmentLayout === 'employee'}
-                className={`history__layout-toggle-button ${assignmentLayout === 'employee' ? 'is-active' : ''}`.trim()}
-                onClick={() => setAssignmentLayout('employee')}
-              >
-                Employee view
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={assignmentLayout === 'day'}
-                className={`history__layout-toggle-button ${assignmentLayout === 'day' ? 'is-active' : ''}`.trim()}
-                onClick={() => setAssignmentLayout('day')}
-              >
-                Day-first view
-              </button>
-            </div>
-          )}
-        </div>
-
-        {assignmentRows.length > 0 ? (
-          assignmentLayout === 'employee' ? (
-            <div className="history__assignment-shell" aria-label="Assignments view">
-              <table className="history__assignment-table">
-                <thead>
-                  <tr>
-                    <th>Team member</th>
-                    <th>Total</th>
-                    {openDays.map((day) => (
-                      <th key={`header-${day}`}>{day.slice(0, 3)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignmentRows.map(({ employee, totalAssigned, dailyAssignments }) => (
-                    <tr key={employee.id}>
-                      <td className="history__employee-cell">
-                        <strong>{employee.name}</strong>
-                      </td>
-                      <td><span className="history__total-chip">{totalAssigned}</span></td>
-                      {openDays.map((day) => {
-                        const shiftsForDay = dailyAssignments[day] ?? [];
-
-                        return (
-                          <td key={`${employee.id}-${day}`}>
-                            {shiftsForDay.length ? (
-                              <div className="history__assignment-chip-row">
-                                {shiftsForDay.map((shift) => (
-                                  <span key={`${employee.id}-${day}-${shift}`} className="history__assignment-chip">{shift}</span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="history__off-chip">Off</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="history__assignment-shell" aria-label="Day-first view">
-              <table className="history__assignment-table history__assignment-table--day-first">
-                <thead>
-                  <tr>
-                    <th>Day</th>
-                    <th>Required</th>
-                    <th>Assigned</th>
-                    <th>Open</th>
-                    {assignedEmployees.map((employee) => (
-                      <th key={`day-first-head-${employee.id}`}>{employee.name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dayFirstRows.map((row) => (
-                    <tr key={`day-first-row-${row.day}`}>
-                      <td className="history__employee-cell"><strong>{row.day}</strong></td>
-                      <td>{row.required}</td>
-                      <td>{row.assigned}</td>
-                      <td>
-                        <span className={`history__day-coverage-status ${row.open > 0 ? 'is-open' : 'is-filled'}`}>
-                          {row.open > 0 ? row.open : '0'}
-                        </span>
-                      </td>
-                      {row.employeeAssignments.map(({ employee, shifts }) => (
-                        <td key={`day-first-${row.day}-${employee.id}`}>
-                          {shifts.length ? (
-                            <div className="history__assignment-chip-row">
-                              {shifts.map((shift) => (
-                                <span key={`day-first-${row.day}-${employee.id}-${shift}`} className="history__assignment-chip">{shift}</span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="history__off-chip">Off</span>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+        <h3 className="history__section-title">Who worked</h3>
+        {rows.length === 0 ? (
+          <p>No one was assigned for this week.</p>
         ) : (
-          <p>No assignments for this role and week yet.</p>
-        )}
-      </ContentPanel>
-
-      <ContentPanel>
-        <h3 className="history__section-title">Day coverage</h3>
-        <p className="history__section-copy">Check required versus assigned coverage before drilling into the assignment grid.</p>
-        <div className="history__day-coverage" aria-label="Day coverage">
-          {dailyCoverageRows.map((row) => (
-            <article key={row.day} className="history__day-coverage-item">
-              <h4>{row.day}</h4>
-              <p>{row.assigned} assigned / {row.required} required</p>
-              <span className={`history__day-coverage-status ${row.open > 0 ? 'is-open' : 'is-filled'}`}>
-                {row.open > 0 ? `${row.open} open` : 'Filled'}
-              </span>
-            </article>
-          ))}
-        </div>
-
-        {(coverageGaps.length > 0 || shiftCapAlerts.length > 0) && (
-          <div className="history__issues" aria-label="Unresolved issues details">
-            <h3>Issue details</h3>
-            {coverageGaps.length > 0 && (
-              <div className="history__issue-group">
-                <h4>Coverage gaps</h4>
-                <ul>
-                  {coverageGaps.map((gap) => (
-                    <li key={`gap-${gap.day}-${gap.shift}`}>
-                      Coverage gap: {gap.day} {gap.shift} ({gap.open} open)
-                    </li>
+          <div className="history__assignment-shell">
+            <table className="history__assignment-table">
+              <thead>
+                <tr>
+                  <th>Team member</th>
+                  <th>Total</th>
+                  {openDays.map((day) => (
+                    <th key={day}>{day.slice(0, 3)}</th>
                   ))}
-                </ul>
-              </div>
-            )}
-            {shiftCapAlerts.length > 0 && (
-              <div className="history__issue-group">
-                <h4>Shift-cap alerts</h4>
-                <ul>
-                  {shiftCapAlerts.map((alert) => (
-                    <li key={`alert-${alert.employeeId}`}>
-                      Shift-cap alert: {alert.employeeName} assigned {alert.assigned} shifts (limit {alert.maxShifts})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key}>
+                    <td className="history__employee-cell">
+                      <strong>{row.name}</strong>
+                      <span className="history__role-tag">{row.role}</span>
+                    </td>
+                    <td><span className="history__total-chip">{row.total}</span></td>
+                    {openDays.map((day) => (
+                      <td key={day}>
+                        {row.byDay[day].length ? (
+                          <div className="history__assignment-chip-row">
+                            {row.byDay[day].map((shift) => (
+                              <span key={shift} className="history__assignment-chip">{shift}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="history__off-chip">Off</span>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </ContentPanel>
 
       <ContentPanel>
-        <h3 className="history__section-title">Details</h3>
-        <div className="history__review-grid">
-          <article className="history__review-card" aria-label="Assignment review summary">
-            <h3>Assignments</h3>
-            <p>{metrics.assignedSlots} assigned slots across {metrics.roleEmployeeCount} team members.</p>
-          </article>
-          <article className="history__review-card" aria-label="Coverage review summary">
-            <h3>Coverage</h3>
-            <p>{metrics.requiredSlots} required slots for the week.</p>
-            <p>{metrics.openSlots} unfilled slots.</p>
-          </article>
-          <article className="history__review-card" aria-label="Unresolved issues summary">
-            <h3>Unresolved issues</h3>
-            <p>{coverageGaps.length} coverage gap {coverageGaps.length === 1 ? 'issue' : 'issues'}.</p>
-            <p>{shiftCapAlerts.length} shift-cap {shiftCapAlerts.length === 1 ? 'alert' : 'alerts'}.</p>
-          </article>
+        <h3 className="history__section-title">Coverage by day</h3>
+        <div className="history__day-strip" aria-label="Coverage by day">
+          {dayCoverage.map((entry) => (
+            <span key={entry.day} className={`history__day-chip is-${entry.status}`}>
+              <strong>{entry.day.slice(0, 3)}</strong>
+              {entry.assigned}/{entry.required}
+            </span>
+          ))}
         </div>
       </ContentPanel>
     </div>

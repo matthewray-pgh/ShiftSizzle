@@ -2,13 +2,55 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   Button,
+  CoverageDayRow,
+  DayHoursRow,
   InputField,
 } from '../../Components';
-import { DAYS, formatShiftLabel, useAppState } from '../../state/AppState';
+import { DAYS, useAppState } from '../../state/AppState';
 
 const emptyCoverageRow = (shiftTypes) => Object.fromEntries(shiftTypes.map((shift) => [shift, 0]));
 
 import './Settings.scss';
+
+// Each settings block can collapse to a single header row (the full form is
+// several screens of scrolling on a phone). Every section starts expanded;
+// collapsing is opt-in and animates via a grid-rows transition. The body
+// stays in the DOM either way, and at the tablet breakpoint and up it's
+// forced open so desktop always shows everything.
+const SettingsSection = ({ title, hint, dirty, wide, ariaLabel, children }) => {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <section
+      className={`settings__group${wide ? ' settings__group--wide' : ''}${open ? ' is-open' : ''}`}
+      aria-label={ariaLabel}
+    >
+      <h3 className="settings__group-summary">
+        <button
+          type="button"
+          className="settings__group-toggle"
+          aria-expanded={open}
+          aria-label={title}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="settings__group-copy">
+            <span className="settings__group-heading">
+              <span className="settings__group-title">{title}</span>
+              {dirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
+            </span>
+            {hint && <span className="settings__group-hint">{hint}</span>}
+          </span>
+          <i className="fas fa-chevron-down settings__group-chevron" aria-hidden="true" />
+        </button>
+      </h3>
+      <div className="settings__group-collapse">
+        <div className="settings__group-body">
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 export const Settings = () => {
   const { state, dispatch } = useAppState();
@@ -46,7 +88,6 @@ export const Settings = () => {
   const workspaceDirty = [
     'businessName',
     'locationName',
-    'schedulerName',
   ].some((field) => form[field] !== state.settings[field]);
   const shiftsDirty = JSON.stringify(form.shiftTypes) !== JSON.stringify(state.settings.shiftTypes)
     || JSON.stringify(form.shiftTimes ?? {}) !== JSON.stringify(state.settings.shiftTimes ?? {});
@@ -112,6 +153,31 @@ export const Settings = () => {
     }));
   };
 
+  // A per-day override for one shift's hours. Clearing both fields for a day
+  // drops the override (that day falls back to the base time).
+  const updateShiftDayTime = (label, day, field, value) => {
+    setJustSaved(false);
+    setForm((currentForm) => {
+      const entry = currentForm.shiftTimes?.[label] ?? { startTime: '', endTime: '' };
+      const byDay = { ...(entry.byDay ?? {}) };
+      const nextDay = { startTime: '', endTime: '', ...(byDay[day] ?? {}), [field]: value };
+
+      if (!nextDay.startTime && !nextDay.endTime) {
+        delete byDay[day];
+      } else {
+        byDay[day] = nextDay;
+      }
+
+      return {
+        ...currentForm,
+        shiftTimes: {
+          ...(currentForm.shiftTimes ?? {}),
+          [label]: { startTime: '', endTime: '', ...entry, byDay },
+        },
+      };
+    });
+  };
+
   const addTeamRole = () => {
     const nextTeamRole = newTeamRole.trim();
 
@@ -164,6 +230,34 @@ export const Settings = () => {
     });
   };
 
+  // Copy one day's open/close/is-open state onto every day — the same
+  // "set it once" affordance Coverage Targets has, so Business Hours isn't
+  // seven separate toggles plus fourteen time entries.
+  const applyHoursToAllDays = (sourceDay) => {
+    const source = form.operatingHours[sourceDay];
+
+    updateForm(
+      'operatingHours',
+      Object.fromEntries(DAYS.map((day) => [day, { ...source }])),
+    );
+  };
+
+  // A new org's operating hours start blank on purpose (we don't guess hours
+  // it never confirmed). These one-tap presets are the fast way in — set a
+  // common pattern, then adjust the days that differ.
+  const WEEKEND = ['Saturday', 'Sunday'];
+  const applyHoursPreset = (preset) => {
+    const open = { isOpen: true, openTime: '09:00', closeTime: '17:00' };
+    const closed = { isOpen: false, openTime: '', closeTime: '' };
+    const byPreset = {
+      weekdays: (day) => (WEEKEND.includes(day) ? { ...closed } : { ...open }),
+      everyday: () => ({ ...open }),
+      closed: () => ({ ...closed }),
+    };
+
+    updateForm('operatingHours', Object.fromEntries(DAYS.map((day) => [day, byPreset[preset](day)])));
+  };
+
   const toggleOperatingDay = (day) => {
     updateOperatingHours(day, 'isOpen', !form.operatingHours[day].isOpen);
   };
@@ -193,30 +287,22 @@ export const Settings = () => {
         </div>
       </div>
       <form className="settings__form" aria-label="Workspace settings" onSubmit={handleSaveAll}>
-        <div className="settings__group" aria-label="Workspace details settings">
-          <div className="settings__group-copy">
-              <div className="settings__group-heading">
-                <h3>Workspace Details</h3>
-                {workspaceDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
-              </div>
-            <p>Names shown across the app.</p>
-          </div>
-          <div className="settings__group-body">
-            <InputField label="Organization Name" name="businessName" value={form.businessName} onChange={(value) => updateForm('businessName', value)} />
-            <InputField label="Location Name" name="locationName" value={form.locationName} onChange={(value) => updateForm('locationName', value)} />
-            <InputField label="Scheduler Name" name="schedulerName" value={form.schedulerName} onChange={(value) => updateForm('schedulerName', value)} />
-          </div>
-        </div>
+        <SettingsSection
+          title="Workspace Details"
+          hint="Names shown across the app."
+          dirty={workspaceDirty}
+          ariaLabel="Workspace details settings"
+        >
+          <InputField label="Organization Name" name="businessName" value={form.businessName} onChange={(value) => updateForm('businessName', value)} />
+          <InputField label="Location Name" name="locationName" value={form.locationName} onChange={(value) => updateForm('locationName', value)} />
+        </SettingsSection>
 
-        <div className="settings__group" aria-label="Shift type settings">
-          <div className="settings__group-copy">
-            <div className="settings__group-heading">
-              <h3>Shift Types</h3>
-              {shiftsDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
-            </div>
-            <p>Used across scheduling and availability. Times are optional.</p>
-          </div>
-          <div className="settings__group-body">
+        <SettingsSection
+          title="Shift Types"
+          hint="Used across scheduling and availability. Times are optional."
+          dirty={shiftsDirty}
+          ariaLabel="Shift type settings"
+        >
             <div className="settings__shift-list">
               {form.shiftTypes.map((shiftType) => {
                 const times = form.shiftTimes?.[shiftType] ?? { startTime: '', endTime: '' };
@@ -237,30 +323,62 @@ export const Settings = () => {
                     </div>
                     <div className="settings__shift-row-times">
                       <div className="settings__shift-time">
-                        <label htmlFor={`${shiftType}-shift-start`} className="settings__hours-label">Start</label>
+                        <label htmlFor={`${shiftType}-shift-start`}>Start</label>
                         <input
                           id={`${shiftType}-shift-start`}
                           type="time"
                           min="00:00"
                           max="23:59"
-                          className="settings__hours-input"
                           value={times.startTime ?? ''}
                           onChange={(event) => updateShiftTime(shiftType, 'startTime', event.target.value)}
                         />
                       </div>
                       <div className="settings__shift-time">
-                        <label htmlFor={`${shiftType}-shift-end`} className="settings__hours-label">End</label>
+                        <label htmlFor={`${shiftType}-shift-end`}>End</label>
                         <input
                           id={`${shiftType}-shift-end`}
                           type="time"
                           min="00:00"
                           max="23:59"
-                          className="settings__hours-input"
                           value={times.endTime ?? ''}
                           onChange={(event) => updateShiftTime(shiftType, 'endTime', event.target.value)}
                         />
                       </div>
                     </div>
+
+                    <details className="settings__shift-days">
+                      <summary>Different hours on some days</summary>
+                      <p className="settings__shift-days-hint">
+                        Set only the days that differ — blank days use the times above.
+                      </p>
+                      <div className="settings__shift-days-grid">
+                        {DAYS.map((day) => {
+                          const dayTimes = times.byDay?.[day] ?? { startTime: '', endTime: '' };
+
+                          return (
+                            <div key={day} className="settings__shift-days-row">
+                              <strong>{day.slice(0, 3)}</strong>
+                              <input
+                                type="time"
+                                min="00:00"
+                                max="23:59"
+                                aria-label={`${shiftType} ${day} start time`}
+                                value={dayTimes.startTime ?? ''}
+                                onChange={(event) => updateShiftDayTime(shiftType, day, 'startTime', event.target.value)}
+                              />
+                              <input
+                                type="time"
+                                min="00:00"
+                                max="23:59"
+                                aria-label={`${shiftType} ${day} end time`}
+                                value={dayTimes.endTime ?? ''}
+                                onChange={(event) => updateShiftDayTime(shiftType, day, 'endTime', event.target.value)}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
                   </div>
                 );
               })}
@@ -274,18 +392,14 @@ export const Settings = () => {
                 Add Shift
               </Button>
             </div>
-          </div>
-        </div>
+        </SettingsSection>
 
-        <div className="settings__group" aria-label="Team role settings">
-          <div className="settings__group-copy">
-            <div className="settings__group-heading">
-              <h3>Team Roles</h3>
-              {rolesDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
-            </div>
-            <p>Roles used for scheduling and coverage. Remove any you don't use.</p>
-          </div>
-          <div className="settings__group-body">
+        <SettingsSection
+          title="Team Roles"
+          hint="Roles used for scheduling and coverage. Remove any you don't use."
+          dirty={rolesDirty}
+          ariaLabel="Team role settings"
+        >
             <div className="settings__token-row settings__token-row--stacked">
               {form.teamRoles.map((role) => {
                 const locked = form.teamRoles.length <= 1 || rolesInUse.has(role);
@@ -315,18 +429,15 @@ export const Settings = () => {
                 Add Role
               </Button>
             </div>
-          </div>
-        </div>
+        </SettingsSection>
 
-        <div className="settings__group settings__group--wide" aria-label="Coverage target settings">
-          <div className="settings__group-copy">
-            <div className="settings__group-heading">
-              <h3>Coverage Targets</h3>
-              {coverageDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
-            </div>
-            <p>How many of each role each shift needs. Set once here — schedules start from this, so weekly work is just assigning people.</p>
-          </div>
-          <div className="settings__group-body">
+        <SettingsSection
+          title="Coverage Targets"
+          hint="How many of each role each shift needs. Set once here — schedules start from this, so weekly work is just assigning people."
+          dirty={coverageDirty}
+          ariaLabel="Coverage target settings"
+          wide
+        >
             <label className="settings__field-label" htmlFor="coverage-role">Role</label>
             <select
               id="coverage-role"
@@ -340,51 +451,27 @@ export const Settings = () => {
             </select>
 
             <div className="settings__coverage-grid" aria-label={`Coverage targets for ${activeCoverageRole}`}>
-              {DAYS.map((day) => {
-                const isClosed = !form.operatingHours?.[day]?.isOpen;
-
-                return (
-                  <div key={day} className={`settings__coverage-row ${isClosed ? 'is-closed' : ''}`.trim()}>
-                    <div className="settings__coverage-row-head">
-                      <strong>{day}{isClosed ? <span className="settings__coverage-closed"> · closed</span> : null}</strong>
-                      <button
-                        type="button"
-                        className="settings__inline-link"
-                        onClick={() => applyCoverageToAllDays(activeCoverageRole, day)}
-                      >
-                        Apply to all days
-                      </button>
-                    </div>
-                    <div className="settings__coverage-fields">
-                      {form.shiftTypes.map((shift) => (
-                        <label key={shift} className="settings__coverage-field">
-                          <span>{formatShiftLabel(form, shift)}</span>
-                          <input
-                            type="number"
-                            min={0}
-                            className="settings__coverage-input"
-                            value={coverageRow(day)[shift] ?? 0}
-                            onChange={(event) => updateCoverage(activeCoverageRole, day, shift, event.target.value)}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {DAYS.map((day) => (
+                <CoverageDayRow
+                  key={day}
+                  day={day}
+                  isClosed={!form.operatingHours?.[day]?.isOpen}
+                  settings={form}
+                  shiftTypes={form.shiftTypes}
+                  values={coverageRow(day)}
+                  onChange={(shift, value) => updateCoverage(activeCoverageRole, day, shift, value)}
+                  onApplyToAll={() => applyCoverageToAllDays(activeCoverageRole, day)}
+                />
+              ))}
             </div>
-          </div>
-        </div>
+        </SettingsSection>
 
-        <div className="settings__group" aria-label="Scheduling week settings">
-          <div className="settings__group-copy">
-            <div className="settings__group-heading">
-              <h3>Scheduling Week</h3>
-              {schedulingDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
-            </div>
-            <p>The day your scheduling week starts.</p>
-          </div>
-          <div className="settings__group-body">
+        <SettingsSection
+          title="Scheduling Week"
+          hint="The day your scheduling week starts."
+          dirty={schedulingDirty}
+          ariaLabel="Scheduling week settings"
+        >
             <label className="settings__field-label" htmlFor="week-starts-on">Week Starts On</label>
             <select
               id="week-starts-on"
@@ -410,75 +497,42 @@ export const Settings = () => {
                 <strong>{derivedWeekEnd || 'Not set'}</strong>
               </div>
             </div>
-          </div>
-        </div>
+        </SettingsSection>
 
-        <div className="settings__group settings__group--wide" aria-label="Operating hours settings">
-          <div className="settings__group-copy">
-            <div className="settings__group-heading">
-              <h3>Business Hours</h3>
-              {hoursDirty && <span className="settings__dirty-indicator">Unsaved changes</span>}
+        <SettingsSection
+          title="Business Hours"
+          hint="Which days you're open, and your hours."
+          dirty={hoursDirty}
+          ariaLabel="Operating hours settings"
+          wide
+        >
+            <div className="settings__hours-presets">
+              <span className="settings__field-label">Quick fill</span>
+              <div className="settings__hours-preset-buttons">
+                <button type="button" className="button-outline" onClick={() => applyHoursPreset('weekdays')}>
+                  Weekdays 9–5
+                </button>
+                <button type="button" className="button-outline" onClick={() => applyHoursPreset('everyday')}>
+                  Every day 9–5
+                </button>
+                <button type="button" className="button-outline" onClick={() => applyHoursPreset('closed')}>
+                  All closed
+                </button>
+              </div>
             </div>
-            <p>Which days you're open, and your hours.</p>
-          </div>
-          <div className="settings__group-body">
             <div className="settings__hours-table" aria-label="Business hours table">
-              {DAYS.map((day) => {
-                const hours = form.operatingHours[day];
-
-                return (
-                  <div key={day} className="settings__hours-row">
-                    <div className="settings__hours-day">
-                      <strong>{day}</strong>
-                    </div>
-                    <div className="settings__hours-time settings__hours-time--open">
-                      <label htmlFor={`${day}-open-time`} className="settings__hours-label">Open</label>
-                      <input
-                        id={`${day}-open-time`}
-                        name={`${day}-open-time`}
-                        type="time"
-                        min="00:00"
-                        max="23:59"
-                        className="settings__hours-input"
-                        value={hours.openTime}
-                        onChange={(event) => updateOperatingHours(day, 'openTime', event.target.value)}
-                        disabled={!hours.isOpen}
-                      />
-                    </div>
-                    <div className="settings__hours-time settings__hours-time--close">
-                      <label htmlFor={`${day}-close-time`} className="settings__hours-label">Close</label>
-                      <input
-                        id={`${day}-close-time`}
-                        name={`${day}-close-time`}
-                        type="time"
-                        min="00:00"
-                        max="23:59"
-                        className="settings__hours-input"
-                        value={hours.closeTime}
-                        onChange={(event) => updateOperatingHours(day, 'closeTime', event.target.value)}
-                        disabled={!hours.isOpen}
-                      />
-                    </div>
-                    <div className="settings__hours-toggle-cell">
-                      <button
-                        type="button"
-                        className={`settings__toggle ${hours.isOpen ? 'is-active' : ''}`.trim()}
-                        aria-pressed={hours.isOpen}
-                        aria-label={`${day} is ${hours.isOpen ? 'open' : 'closed'}. Toggle operating day.`}
-                        onClick={() => toggleOperatingDay(day)}
-                      >
-                        <span className="settings__toggle-track" aria-hidden="true">
-                          <span className="settings__toggle-thumb" />
-                        </span>
-                        <span>{hours.isOpen ? 'Open' : 'Closed'}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              {DAYS.map((day) => (
+                <DayHoursRow
+                  key={day}
+                  day={day}
+                  hours={form.operatingHours[day]}
+                  onChangeTime={(field, value) => updateOperatingHours(day, field, value)}
+                  onToggle={() => toggleOperatingDay(day)}
+                  onApplyToAll={() => applyHoursToAllDays(day)}
+                />
+              ))}
             </div>
-          </div>
-        </div>
+        </SettingsSection>
 
         <div className="settings__save-bar" role="status">
           <div className="settings__save-bar-copy">
