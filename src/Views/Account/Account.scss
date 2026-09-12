@@ -113,6 +113,11 @@
     font-weight: 700;
   }
 
+  &__save-bar-hint {
+    color: styles.$text-secondary;
+    font-size: 0.88rem;
+  }
+
   &__action-icon {
     display: inline-flex;
     align-items: center;

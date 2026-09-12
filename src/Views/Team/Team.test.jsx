@@ -136,18 +136,6 @@ describe('Team view', () => {
     expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
   });
 
-  it('shows a compact availability summary on the details tab', async () => {
-    await renderView(Team);
-
-    fireEvent.click(screen.getByText('Add Employee'));
-
-    const availabilitySummary = screen.getByLabelText('Availability summary');
-
-    expect(screen.getByText('Availability snapshot')).toBeInTheDocument();
-    expect(screen.getByText('21 shifts selected')).toBeInTheDocument();
-    expect(within(availabilitySummary).getByText(/Open, Mid, Close \(Sun, Mon, Tue, Wed, Thu, Fri, Sat\)/)).toBeInTheDocument();
-  });
-
   it('applies availability quick actions from the availability tab', async () => {
     await renderView(Team);
 
@@ -194,7 +182,7 @@ describe('Team view', () => {
   it('shows a first-run empty state before any employees have been added', async () => {
     await renderView(Team, { employees: [] });
 
-    expect(screen.getByText('Add your first employee')).toBeInTheDocument();
+    expect(screen.getByText('Start your roster')).toBeInTheDocument();
     // The blank-template download lives in the Import CSV modal instead —
     // no need to duplicate it here.
     expect(screen.queryByRole('button', { name: 'Download blank template' })).not.toBeInTheDocument();

@@ -105,7 +105,51 @@ export const requestAiSetup = async (supabase, description, currentSettings = {}
     return { error: "The generated setup was incomplete — add a bit more detail and try again." };
   }
 
-  return { ok: true, payload, summary: typeof data.setup?.summary === "string" ? data.setup.summary : "" };
+  return {
+    ok: true,
+    payload,
+    raw: data.setup ?? null,
+    summary: typeof data.setup?.summary === "string" ? data.setup.summary : "",
+  };
+};
+
+// Re-weights a picked template's staffing for a specific location without
+// touching its roles/shifts/hours. Wraps setup-assistant (so no extra
+// function to deploy): it asks for a fresh setup constrained to the
+// template's roles and shift labels, then keeps only the per-(role, shift)
+// headcounts. Returns `{ ok, coverageByRole: { [role]: { [shift]: n } },
+// summary }` or `{ error }` (AI_UNAVAILABLE when the function isn't there).
+export const requestTunedCoverage = async (supabase, { templateLabel, roles, shiftTypes, note, currentSettings = {} }) => {
+  const description = [
+    `${templateLabel}.`,
+    `Keep exactly these roles: ${roles.join(", ")}.`,
+    `Keep exactly these shift labels: ${shiftTypes.join(", ")}.`,
+    "Do not add or rename roles or shifts.",
+    `Adjust only the per-role, per-shift headcounts to fit this location: ${note}`,
+  ].join(" ");
+
+  const result = await requestAiSetup(supabase, description, currentSettings);
+
+  if (result.error) {
+    return { error: result.error };
+  }
+
+  const coverageByRole = {};
+
+  (result.raw?.coverage ?? []).forEach((entry) => {
+    if (!entry || !roles.includes(entry.role) || !shiftTypes.includes(entry.shift_label)) {
+      return;
+    }
+
+    coverageByRole[entry.role] = coverageByRole[entry.role] ?? {};
+    coverageByRole[entry.role][entry.shift_label] = Math.max(0, Number(entry.count) || 0);
+  });
+
+  if (Object.keys(coverageByRole).length === 0) {
+    return { error: "The staffing adjustment came back empty — using the template's numbers." };
+  }
+
+  return { ok: true, coverageByRole, summary: result.summary };
 };
 
 // Calls the build-schedule Edge Function for one role. Returns

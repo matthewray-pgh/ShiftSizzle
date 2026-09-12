@@ -85,7 +85,7 @@ export const Layout = ({ children }) => {
             (layout__header-mobile-actions) is the way to reach the Account
             page on a phone instead. Sign Out itself lives on the Account
             page, not in either nav. */}
-        <Navigation testId="footer-mobile-nav" canManage={membership?.accountRole !== "staff"} />
+        <Navigation testId="footer-mobile-nav" canManage={canManage} scheduleBadge={scheduleBadge} />
       </footer>
     </div>
   );

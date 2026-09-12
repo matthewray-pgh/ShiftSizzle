@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DAYS } from './AppState';
-import { AI_UNAVAILABLE, aiSetupToSettingsPayload, requestAiSchedule, requestAiSetup } from './aiAssist';
+import { AI_UNAVAILABLE, aiSetupToSettingsPayload, requestAiSchedule, requestAiSetup, requestTunedCoverage } from './aiAssist';
 
 const SAMPLE_SETUP = {
   week_starts_on: 'Monday',
@@ -96,6 +96,52 @@ describe('requestAiSetup', () => {
 
     const result = await requestAiSetup(supabase, 'A cafe');
     expect(result.error).toMatch(/incomplete/i);
+  });
+});
+
+describe('requestTunedCoverage', () => {
+  const args = { templateLabel: 'Full-service restaurant', roles: ['Server', 'Cook'], shiftTypes: ['Open', 'Close'], note: 'we seat 60' };
+
+  it('keeps only the headcounts for the template\'s own roles and shifts', async () => {
+    const supabase = fakeSupabase(async () => ({
+      data: {
+        ok: true,
+        setup: {
+          ...SAMPLE_SETUP,
+          shift_types: [{ label: 'Open', start_time: null, end_time: null }, { label: 'Close', start_time: null, end_time: null }],
+          team_roles: ['Server', 'Cook'],
+          coverage: [
+            { role: 'Server', shift_label: 'Open', count: 3 },
+            { role: 'Server', shift_label: 'Close', count: 4 },
+            { role: 'Cook', shift_label: 'Open', count: 2 },
+            { role: 'Host', shift_label: 'Open', count: 9 },
+          ],
+          summary: 'Bumped dinner staffing.',
+        },
+      },
+      error: null,
+    }));
+
+    const result = await requestTunedCoverage(supabase, args);
+
+    expect(result.ok).toBe(true);
+    expect(result.coverageByRole).toEqual({ Server: { Open: 3, Close: 4 }, Cook: { Open: 2 } });
+    expect(result.summary).toBe('Bumped dinner staffing.');
+  });
+
+  it('passes AI_UNAVAILABLE through', async () => {
+    const supabase = fakeSupabase(async () => ({ data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send' } }));
+    expect(await requestTunedCoverage(supabase, args)).toEqual({ error: AI_UNAVAILABLE });
+  });
+
+  it('errors when nothing usable came back', async () => {
+    const supabase = fakeSupabase(async () => ({
+      data: { ok: true, setup: { ...SAMPLE_SETUP, shift_types: [{ label: 'Open', start_time: null, end_time: null }], team_roles: ['Server'], coverage: [{ role: 'Ghost', shift_label: 'Nope', count: 5 }] } },
+      error: null,
+    }));
+
+    const result = await requestTunedCoverage(supabase, args);
+    expect(result.error).toMatch(/empty/i);
   });
 });
 

@@ -114,6 +114,15 @@ export const createFakeSupabaseClient = () => {
     schedule_records: [],
     call_outs: [],
     memberships: [],
+    // Registered empty (not seeded by default) rather than omitted, so
+    // fetchOrgBundle's `.from('locations')`/`.from('employee_location_access')`
+    // calls behave like a real migrated backend with none yet — an empty
+    // result, not a missing-table error. This exercises AppState's
+    // synthesize-one-implicit-location fallback the same way a real
+    // single-location org does.
+    locations: [],
+    employee_location_access: [],
+    membership_locations: [],
   };
 
   let session = null;

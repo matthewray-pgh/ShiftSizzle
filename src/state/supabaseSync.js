@@ -34,7 +34,7 @@ const mapSettingsToOrganizationRow = (settings) => ({
   operating_hours: settings.operatingHours,
 });
 
-const mapEmployeeRowToEmployee = (row, availability = {}) => ({
+const mapEmployeeRowToEmployee = (row, availability = {}, sharedLocationIds = []) => ({
   id: row.id,
   name: row.name,
   title: row.title,
@@ -44,6 +44,13 @@ const mapEmployeeRowToEmployee = (row, availability = {}) => ({
   shiftsPerWeek: row.shifts_per_week,
   status: row.status,
   availability,
+  // Home location. Absent/null on a not-yet-migrated backend (no
+  // `location_id` column yet) — AppState backfills it from the resolved
+  // current location on hydrate.
+  locationId: row.location_id ?? null,
+  // Shared (granted, non-home) access — folded in from employee_location_access
+  // by fetchOrgBundle, the same way availability is folded in by employee_id.
+  sharedLocationIds,
 });
 
 const mapEmployeeToEmployeeRow = (orgId, employee) => ({
@@ -56,6 +63,37 @@ const mapEmployeeToEmployeeRow = (orgId, employee) => ({
   email: employee.email,
   shifts_per_week: employee.shiftsPerWeek,
   status: employee.status,
+  location_id: employee.locationId ?? null,
+});
+
+const mapLocationRowToLocation = (row) => ({
+  id: row.id,
+  orgId: row.org_id,
+  name: row.name,
+  address: row.address,
+  shiftTypes: row.shift_types,
+  shiftTimes: row.shift_times ?? {},
+  teamRoles: row.team_roles,
+  weekStartsOn: row.week_starts_on,
+  operatingHours: row.operating_hours,
+  roleCoverage: row.role_coverage ?? {},
+  isArchived: row.is_archived,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapLocationToLocationRow = (orgId, location) => ({
+  id: location.id,
+  org_id: orgId,
+  name: location.name,
+  address: location.address ?? '',
+  shift_types: location.shiftTypes,
+  shift_times: location.shiftTimes ?? {},
+  team_roles: location.teamRoles,
+  week_starts_on: location.weekStartsOn,
+  operating_hours: location.operatingHours,
+  role_coverage: location.roleCoverage ?? {},
+  is_archived: location.isArchived ?? false,
 });
 
 // The DB's own uuid `id` is never surfaced to the reducer — locally, a
@@ -65,6 +103,7 @@ const mapEmployeeToEmployeeRow = (orgId, employee) => ({
 // id from the row's own natural key so both stay in sync.
 const mapScheduleRowToRecord = (row) => ({
   id: buildScheduleRecordId(row.start_date, row.role),
+  locationId: row.location_id ?? null,
   weekLabel: row.week_label,
   startDate: row.start_date,
   endDate: row.end_date,
@@ -104,6 +143,11 @@ const mapCallOutToRow = (orgId, callOut) => ({
 
 const mapRecordToScheduleRow = (orgId, record) => ({
   org_id: orgId,
+  // NOT NULL and part of the unique constraint after migration
+  // 0007_locations.sql — a record synced before that migration runs and
+  // before AppState has resolved a real location will fail this write
+  // (logged, not fatal); it starts succeeding once both are in place.
+  location_id: record.locationId ?? null,
   week_label: record.weekLabel,
   start_date: record.startDate,
   end_date: record.endDate,
@@ -135,13 +179,53 @@ const fetchCallOuts = async (orgId) => {
   }
 };
 
+// `locations` (migration 0007) is newer still. Missing it entirely (table
+// not yet created) is expected and tolerated the same way — AppState treats
+// an empty array as "synthesize one implicit location from settings" rather
+// than a hard error, so a not-yet-migrated org keeps working unchanged.
+const fetchLocations = async (orgId) => {
+  try {
+    const { data, error } = await supabase.from('locations').select('*').eq('org_id', orgId);
+
+    if (error) {
+      console.warn('locations unavailable (apply migration 0007_locations.sql to enable multi-location support)', error);
+      return [];
+    }
+
+    return data.map(mapLocationRowToLocation);
+  } catch (error) {
+    console.warn('locations fetch failed', error);
+    return [];
+  }
+};
+
+// No org_id column on this join table (see 0007_locations.sql) — fetched
+// unfiltered and narrowed by RLS, same approach the spec calls for.
+const fetchEmployeeLocationAccess = async () => {
+  try {
+    const { data, error } = await supabase.from('employee_location_access').select('employee_id, location_id');
+
+    if (error) {
+      console.warn('employee_location_access unavailable (apply migration 0007_locations.sql)', error);
+      return [];
+    }
+
+    return data.map((row) => ({ employeeId: row.employee_id, locationId: row.location_id }));
+  } catch (error) {
+    console.warn('employee_location_access fetch failed', error);
+    return [];
+  }
+};
+
 export const fetchOrgBundle = async (orgId) => {
-  const [orgResult, employeesResult, availabilityResult, scheduleResult, callOuts] = await Promise.all([
+  const [orgResult, employeesResult, availabilityResult, scheduleResult, callOuts, locations, employeeLocationAccess] = await Promise.all([
     supabase.from('organizations').select('*').eq('id', orgId).single(),
     supabase.from('employees').select('*').eq('org_id', orgId),
     supabase.from('employee_availability').select('*').eq('org_id', orgId),
     supabase.from('schedule_records').select('*').eq('org_id', orgId),
     fetchCallOuts(orgId),
+    fetchLocations(orgId),
+    fetchEmployeeLocationAccess(),
   ]);
 
   if (orgResult.error) throw orgResult.error;
@@ -152,11 +236,21 @@ export const fetchOrgBundle = async (orgId) => {
   const availabilityByEmployeeId = new Map(
     availabilityResult.data.map((row) => [row.employee_id, row.availability])
   );
+  const sharedLocationIdsByEmployeeId = new Map();
+
+  employeeLocationAccess.forEach(({ employeeId, locationId }) => {
+    sharedLocationIdsByEmployeeId.set(employeeId, [...(sharedLocationIdsByEmployeeId.get(employeeId) ?? []), locationId]);
+  });
 
   return {
     settings: mapOrganizationRowToSettings(orgResult.data),
+    locations,
     employees: employeesResult.data.map((row) =>
-      mapEmployeeRowToEmployee(row, availabilityByEmployeeId.get(row.id))
+      mapEmployeeRowToEmployee(
+        row,
+        availabilityByEmployeeId.get(row.id),
+        sharedLocationIdsByEmployeeId.get(row.id) ?? [],
+      )
     ),
     schedules: scheduleResult.data.map(mapScheduleRowToRecord),
     callOuts,
@@ -188,11 +282,21 @@ export const upsertAvailabilityRow = (orgId, employeeId, availability) =>
   runWrite('availability', () =>
     supabase.from('employee_availability').upsert({ employee_id: employeeId, org_id: orgId, availability }));
 
+// NOTE: onConflict target matches the POST-migration-0007 unique constraint
+// (location_id, start_date, role). This requires that migration to already
+// be applied — the old (org_id, start_date, role) constraint it replaced no
+// longer exists once it runs. Deploy the migration before this client code,
+// per the spec's rollout order; deploying this first would make every
+// schedule save fail (logged, retried, never succeeding) until it's applied.
 export const upsertScheduleRecordRow = (orgId, record) =>
   runWrite('schedule record', () =>
     supabase
       .from('schedule_records')
-      .upsert(mapRecordToScheduleRow(orgId, record), { onConflict: 'org_id,start_date,role' }));
+      .upsert(mapRecordToScheduleRow(orgId, record), { onConflict: 'location_id,start_date,role' }));
+
+export const upsertLocationRow = (orgId, location) =>
+  runWrite('location', () =>
+    supabase.from('locations').upsert(mapLocationToLocationRow(orgId, location)));
 
 export const updateOrganizationSettings = (orgId, settings) =>
   runWrite('settings', () =>
@@ -244,6 +348,28 @@ export const subscribeToOrgChanges = (orgId, onChange) => {
       (payload) => {
         const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
         onChange({ table: 'call_outs', eventType: payload.eventType, row: mapCallOutRowToRecord(row) });
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'locations', filter: `org_id=eq.${orgId}` },
+      (payload) => {
+        const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+        onChange({ table: 'locations', eventType: payload.eventType, row: mapLocationRowToLocation(row) });
+      }
+    )
+    // No org_id column to filter on (see 0007_locations.sql) — RLS already
+    // narrows this to rows the caller can see, same as the unfiltered fetch.
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'employee_location_access' },
+      (payload) => {
+        const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+        onChange({
+          table: 'employee_location_access',
+          eventType: payload.eventType,
+          row: { employeeId: row.employee_id, locationId: row.location_id },
+        });
       }
     )
     .subscribe();

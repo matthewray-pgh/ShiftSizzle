@@ -96,37 +96,6 @@ const validateForm = (form) => ({
   email: validateField('email', form.email),
 });
 
-const getAvailabilitySummary = (availability = {}) => {
-  const availableDays = DAYS.filter((day) => (availability[day] ?? []).length > 0);
-
-  if (!availableDays.length) {
-    return 'Unavailable all week';
-  }
-
-  const shiftLabelMap = new Map();
-
-  availableDays.forEach((day) => {
-    const shifts = availability[day] ?? [];
-    const key = shifts.join('|');
-    const label = shifts.join(', ');
-    const current = shiftLabelMap.get(key);
-
-    if (current) {
-      current.days.push(day.slice(0, 3));
-      return;
-    }
-
-    shiftLabelMap.set(key, {
-      label,
-      days: [day.slice(0, 3)],
-    });
-  });
-
-  return Array.from(shiftLabelMap.values())
-    .map(({ label, days }) => `${label} (${days.join(', ')})`)
-    .join(' · ');
-};
-
 const getAvailabilityDayFlags = (availability = {}) => DAYS.map((day) => ({
   day,
   short: day.slice(0, 2),
@@ -785,26 +754,25 @@ export const Team = () => {
         </div>
 
         {hasEmployees && (
-          <button
-            type="button"
-            className="team__filters-toggle"
-            onClick={() => setShowFilters((current) => !current)}
-            aria-expanded={showFilters}
-            aria-controls="team-filters-panel"
-          >
-            <span>
-              <i className="fas fa-sliders" aria-hidden="true" />
-              Filters
-            </span>
-            <i className={`fas fa-chevron-${showFilters ? 'up' : 'down'}`} aria-hidden="true" />
-          </button>
-        )}
+          <div className="team__filters-card">
+            <button
+              type="button"
+              className="team__filters-toggle"
+              onClick={() => setShowFilters((current) => !current)}
+              aria-expanded={showFilters}
+              aria-controls="team-filters-panel"
+            >
+              <span>
+                <i className="fas fa-sliders" aria-hidden="true" />
+                Filters
+              </span>
+              <i className={`fas fa-chevron-${showFilters ? 'up' : 'down'}`} aria-hidden="true" />
+            </button>
 
-        {hasEmployees && (
-          <div
-            id="team-filters-panel"
-            className={`team__filters-panel ${showFilters ? 'is-expanded' : ''}`.trim()}
-          >
+            <div
+              id="team-filters-panel"
+              className={`team__filters-panel ${showFilters ? 'is-expanded' : ''}`.trim()}
+            >
            <div className="team__filters-panel-inner">
             <div className="team__filter-group team__filter-group--search">
               <label className="team__filter-label" htmlFor="team-search-input">Search</label>
@@ -891,6 +859,7 @@ export const Team = () => {
               </div>
             )}
            </div>
+          </div>
           </div>
         )}
       </div>
@@ -1181,22 +1150,6 @@ export const Team = () => {
                       value={form.shiftsPerWeek}
                       onChange={(value) => updateFormField('shiftsPerWeek', value)}
                     />
-                    <section className="team__availability-summary-card" aria-label="Availability summary">
-                      <div className="team__availability-summary-header">
-                        <div>
-                          <span className="team__availability-summary-label">Availability snapshot</span>
-                          <strong>{selectedAvailabilityCount} shifts selected</strong>
-                        </div>
-                        <button
-                          type="button"
-                          className="team__availability-summary-link"
-                          onClick={() => setActiveModalTab(MODAL_TABS.AVAILABILITY)}
-                        >
-                          Edit availability
-                        </button>
-                      </div>
-                      <p>{getAvailabilitySummary(form.availability)}</p>
-                    </section>
                   </div>
                 )}
                 {activeModalTab === MODAL_TABS.AVAILABILITY && (

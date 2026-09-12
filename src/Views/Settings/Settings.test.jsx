@@ -42,7 +42,7 @@ describe('Settings view', () => {
   it('sets a per-day override for a shift type and keeps it through a save', async () => {
     await renderView(Settings);
 
-    fireEvent.click(screen.getAllByText('Different hours on some days')[0]);
+    fireEvent.click(screen.getAllByText('Vary by day')[0]);
 
     const fridayStart = screen.getByLabelText('Open Friday start time');
     fireEvent.change(fridayStart, { target: { value: '08:00' } });
@@ -102,28 +102,6 @@ describe('Settings view', () => {
     ]);
     expect(openInputs[1]).toBeEnabled();
     expect(openInputs[0]).toBeDisabled();
-  });
-
-  it('copies one day’s business hours to every day', async () => {
-    await renderView(Settings, {
-      settings: {
-        weekStartsOn: 'Monday',
-        operatingHours: {
-          Tuesday: { isOpen: true, openTime: '07:30', closeTime: '15:30' },
-        },
-      },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Tuesday hours to all days' }));
-
-    // "Open" also labels the coverage-grid number inputs; the business-hours
-    // fields are the time inputs.
-    const openInputs = screen.getAllByLabelText('Open').filter((input) => input.type === 'time');
-    expect(openInputs.length).toBe(7);
-    openInputs.forEach((input) => {
-      expect(input).toHaveValue('07:30');
-      expect(input).toBeEnabled();
-    });
   });
 
   it('discards unsaved edits across all sections', async () => {

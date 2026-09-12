@@ -59,10 +59,10 @@ const TEMPLATE_DEFS = {
   },
   "bar": {
     label: "Bar / pub",
-    description: "Afternoon open, late close, no morning shift.",
-    shiftTypes: ["Mid", "Close"],
+    description: "Opens in the afternoon and closes late — an opening and a closing shift.",
+    shiftTypes: ["Open", "Close"],
     shiftTimes: {
-      Mid: { startTime: "15:00", endTime: "21:00" },
+      Open: { startTime: "15:00", endTime: "21:00" },
       Close: { startTime: "20:00", endTime: "02:00" },
     },
     teamRoles: ["Manager", "Bartender", "Server", "Security"],
@@ -72,10 +72,10 @@ const TEMPLATE_DEFS = {
       closedDays: ["Monday"],
     },
     coverage: {
-      Manager: { Mid: 1, Close: 1 },
-      Bartender: { Mid: 2, Close: 3 },
-      Server: { Mid: 1, Close: 2 },
-      Security: { Mid: 0, Close: 1 },
+      Manager: { Open: 1, Close: 1 },
+      Bartender: { Open: 2, Close: 3 },
+      Server: { Open: 1, Close: 2 },
+      Security: { Open: 0, Close: 1 },
     },
   },
   "quick-service": {

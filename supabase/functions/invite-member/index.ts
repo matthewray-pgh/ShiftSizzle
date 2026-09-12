@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Invalid request body' }, 400);
   }
 
-  const { email, accountRole, employeeId } = body ?? {};
+  const { email, accountRole, employeeId, locationIds } = body ?? {};
 
   if (!email || !['manager', 'staff'].includes(accountRole)) {
     return jsonResponse({ error: 'email and a valid accountRole (manager or staff) are required' }, 400);
@@ -69,6 +69,32 @@ Deno.serve(async (req) => {
   }
 
   const orgId = callerMembership.org_id;
+
+  // Only meaningful for manager invites — a staff member's location access
+  // comes from employees.location_id / employee_location_access, not from
+  // their membership.
+  const requestedLocationIds = accountRole === 'manager' && Array.isArray(locationIds)
+    ? [...new Set(locationIds.filter(Boolean))]
+    : [];
+
+  if (requestedLocationIds.length > 0) {
+    const { data: validLocations, error: locationsError } = await adminClient
+      .from('locations')
+      .select('id')
+      .eq('org_id', orgId)
+      .in('id', requestedLocationIds);
+
+    if (locationsError) {
+      return jsonResponse({ error: locationsError.message }, 500);
+    }
+
+    // Trust nothing from the request body beyond "these ids, if they're
+    // actually this caller's own locations" — same rule orgId already
+    // follows (it comes from the caller's membership, never the body).
+    if ((validLocations ?? []).length !== requestedLocationIds.length) {
+      return jsonResponse({ error: 'One or more locationIds do not belong to your organization' }, 400);
+    }
+  }
 
   const { data: membershipRow, error: upsertError } = await adminClient
     .from('memberships')
@@ -88,6 +114,33 @@ Deno.serve(async (req) => {
 
   if (upsertError) {
     return jsonResponse({ error: upsertError.message }, 500);
+  }
+
+  if (accountRole === 'manager') {
+    // Re-invites replace the membership's location grants wholesale rather
+    // than merging, so this call is always the authoritative list.
+    const { error: clearLocationsError } = await adminClient
+      .from('membership_locations')
+      .delete()
+      .eq('membership_id', membershipRow.id);
+
+    if (clearLocationsError) {
+      return jsonResponse({ error: clearLocationsError.message }, 500);
+    }
+
+    if (requestedLocationIds.length > 0) {
+      const { error: grantLocationsError } = await adminClient
+        .from('membership_locations')
+        .insert(requestedLocationIds.map((locationId) => ({
+          membership_id: membershipRow.id,
+          location_id: locationId,
+          granted_by: callerData.user.id,
+        })));
+
+      if (grantLocationsError) {
+        return jsonResponse({ error: grantLocationsError.message }, 500);
+      }
+    }
   }
 
   const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {

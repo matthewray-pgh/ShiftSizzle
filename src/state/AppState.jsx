@@ -9,6 +9,7 @@ import {
   upsertAvailabilityRow,
   upsertCallOutRow,
   upsertEmployeeRow,
+  upsertLocationRow,
   upsertScheduleRecordRow,
 } from "./supabaseSync";
 
@@ -172,6 +173,86 @@ export const getTeamRoles = (settings = {}, employees = []) => {
 // custom-only `additionalTeamRoles`; fold that into the single flat list.
 const legacyTeamRoles = (additionalTeamRoles = []) =>
   getUniqueValues([...DEFAULT_TEAM_ROLES, ...additionalTeamRoles]);
+
+// Used only when a hydrated bundle has no real `locations` row (a backend
+// that hasn't run migration 0007_locations.sql yet) — see normalizeLocation.
+const DEFAULT_LOCATION_ID = 'default-location';
+
+// A location holds the same operational fields `settings` used to hold
+// directly (shiftTypes/shiftTimes/teamRoles/weekStartsOn/operatingHours/
+// roleCoverage) — normalized the same way, just per-location instead of
+// per-org. `settings` itself becomes a merged view: account-level fields
+// (businessName, publishNotifications) plus the current location's fields.
+const normalizeLocation = (location = {}) => {
+  const shiftTypes = getShiftTypes(location);
+  const teamRolesConfigured = getUniqueValues(location.teamRoles ?? []);
+  const teamRoles = teamRolesConfigured.length ? teamRolesConfigured : [...DEFAULT_TEAM_ROLES];
+
+  return {
+    id: location.id || DEFAULT_LOCATION_ID,
+    name: location.name || 'Main location',
+    address: location.address ?? '',
+    shiftTypes,
+    shiftTimes: normalizeShiftTimes(location.shiftTimes, shiftTypes),
+    teamRoles,
+    roleCoverage: normalizeRoleCoverage(location.roleCoverage, teamRoles, shiftTypes),
+    weekStartsOn: DAYS.includes(location.weekStartsOn) ? location.weekStartsOn : "",
+    operatingHours: normalizeOperatingHours(location.operatingHours),
+    isArchived: Boolean(location.isArchived),
+  };
+};
+
+// Projects a location's fields onto a settings object — this is how
+// `settings` (the merged view every existing reader relies on) gets built
+// from account fields + whichever location is current.
+const applyLocationToSettings = (settings, location) => ({
+  ...settings,
+  locationName: location.name,
+  shiftTypes: location.shiftTypes,
+  shiftTimes: location.shiftTimes,
+  teamRoles: location.teamRoles,
+  weekStartsOn: location.weekStartsOn,
+  operatingHours: location.operatingHours,
+  roleCoverage: location.roleCoverage,
+});
+
+// The reverse: lifts a (post-normalizeSettings) settings object's
+// location-scoped slice back onto the location record it came from — used
+// after a Settings save so the edit sticks to the right location rather
+// than only living in the transient `settings` merge.
+const applySettingsToLocation = (location, settings) => normalizeLocation({
+  ...location,
+  name: settings.locationName,
+  shiftTypes: settings.shiftTypes,
+  shiftTimes: settings.shiftTimes,
+  teamRoles: settings.teamRoles,
+  weekStartsOn: settings.weekStartsOn,
+  operatingHours: settings.operatingHours,
+  roleCoverage: settings.roleCoverage,
+});
+
+// The roster visible at the current location: home-rostered there, plus
+// anyone explicitly granted shared access. With zero or one location this
+// is every employee — identical to today's org-wide behavior.
+export const getLocationEmployees = (state) => {
+  if (!state.currentLocationId) {
+    return state.employees;
+  }
+
+  return state.employees.filter((employee) =>
+    employee.locationId === state.currentLocationId
+    || (employee.sharedLocationIds ?? []).includes(state.currentLocationId));
+};
+
+// Saved schedule history scoped to the current location. With zero or one
+// location this is every record — identical to today's org-wide behavior.
+export const getLocationSchedules = (state) => {
+  if (!state.currentLocationId) {
+    return state.schedules;
+  }
+
+  return state.schedules.filter((entry) => entry.locationId === state.currentLocationId);
+};
 
 const createAvailability = (allowedShifts = BASE_SHIFT_TYPES) =>
   Object.fromEntries(DAYS.map((day) => [day, [...allowedShifts]]));
@@ -648,7 +729,7 @@ const upsertScheduleRecord = (schedules = [], nextRecord) => {
   ));
 };
 
-const buildScheduleRecordFromLiveSchedule = (schedule, role, employees, settings, status, timestamp, existingRecord = null) => {
+const buildScheduleRecordFromLiveSchedule = (schedule, role, employees, settings, status, timestamp, existingRecord = null, locationId = null) => {
   const shiftTypes = getShiftTypes(settings);
   const operatingHours = normalizeOperatingHours(settings.operatingHours);
   const requirements = schedule.roleRequirements?.[role] ?? {};
@@ -665,6 +746,10 @@ const buildScheduleRecordFromLiveSchedule = (schedule, role, employees, settings
 
   return {
     id: buildScheduleRecordId(schedule.startDate, role),
+    // Falls back to the existing record's locationId (or nothing) rather
+    // than forcing it, so a resave under a null/unresolved currentLocationId
+    // never silently reassigns a record to the wrong location.
+    locationId: locationId ?? existingRecord?.locationId ?? null,
     weekLabel: schedule.weekLabel,
     startDate: schedule.startDate,
     endDate: schedule.endDate,
@@ -724,7 +809,7 @@ export const getUnresolvedScheduleItems = (state, todayISO = formatISODate(new D
   const shiftTypes = getShiftTypes(state.settings);
   const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
 
-  return state.schedules
+  return getLocationSchedules(state)
     .filter((record) => recordHasSignal(record) && (!record.endDate || record.endDate >= todayISO))
     .map((record) => {
       const review = calculateScheduleReview({
@@ -780,7 +865,7 @@ export const getSchedulerReadiness = (state) => {
   const hasCoverage = templateHasCoverage || weekHasCoverage;
 
   const schedulableRoles = new Set(teamRoles);
-  const hasTeam = employees.some((employee) =>
+  const hasTeam = getLocationEmployees(state).some((employee) =>
     employee.status !== "archived" && (employee.roles ?? []).some((role) => schedulableRoles.has(role)));
 
   const steps = [
@@ -835,7 +920,9 @@ export const getWeekChoices = (state, referenceDate = new Date()) => {
     [addWeeks(thisWeek, 3), null],
   ]);
 
-  state.schedules.forEach((entry) => {
+  const locationSchedules = getLocationSchedules(state);
+
+  locationSchedules.forEach((entry) => {
     if (entry.startDate && !relatives.has(entry.startDate)) {
       relatives.set(entry.startDate, null);
     }
@@ -850,7 +937,7 @@ export const getWeekChoices = (state, referenceDate = new Date()) => {
         startDate,
         relative,
         label: range.weekLabel || startDate,
-        status: getWeekStatus(state.schedules, startDate),
+        status: getWeekStatus(locationSchedules, startDate),
         isCurrent: startDate === thisWeek,
       };
     })
@@ -1207,9 +1294,9 @@ const deriveCoverageFromSchedules = (schedules = []) => {
 const hydrateScheduleForWeek = (state, startDate) => {
   const shiftTypes = getShiftTypes(state.settings);
   const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
-  const teamRoles = getTeamRoles(state.settings, state.employees);
+  const teamRoles = getTeamRoles(state.settings, getLocationEmployees(state));
   const recordsForWeek = startDate
-    ? state.schedules.filter((entry) => entry.startDate === startDate)
+    ? getLocationSchedules(state).filter((entry) => entry.startDate === startDate)
     : [];
   const recordsByRole = Object.fromEntries(recordsForWeek.map((entry) => [entry.role, entry]));
   const roleRequirements = seedRoleRequirements(recordsByRole, state.settings, teamRoles, shiftTypes, operatingHours);
@@ -1318,6 +1405,14 @@ const createDefaultState = () => {
 
   return {
     settings,
+    // Multi-location support: `settings` above is a merged view (account
+    // fields + the current location's fields); `locations` and
+    // `currentLocationId` are the actual source of truth for the
+    // location-scoped slice of it. Empty/null pre-hydration — HYDRATE_FROM_SERVER
+    // always resolves at least one location (real or a backward-compat
+    // synthesized one) before the app is used.
+    locations: [],
+    currentLocationId: null,
     employees: [],
     schedule: createDefaultSchedule([], BASE_SHIFT_TYPES, getTeamRoles(settings, []), normalizeOperatingHours()),
     schedules: [],
@@ -1406,13 +1501,18 @@ const appStateReducer = (state, action) => {
   switch (action.type) {
     case "UPSERT_EMPLOYEE": {
       const shiftTypes = getShiftTypes(state.settings);
+      const existingEmployee = state.employees.find((currentEmployee) => currentEmployee.id === action.payload.id);
       const employee = {
         ...action.payload,
         availability: normalizeAvailability(action.payload.availability ?? createAvailability(shiftTypes), shiftTypes),
         status: action.payload.status ?? "active",
+        // New hires default to the location currently in view; editing an
+        // existing employee keeps their home location unless the payload
+        // (e.g. a future reassign-location action) explicitly changes it.
+        locationId: action.payload.locationId ?? existingEmployee?.locationId ?? state.currentLocationId,
+        sharedLocationIds: action.payload.sharedLocationIds ?? existingEmployee?.sharedLocationIds ?? [],
       };
-      const employeeExists = state.employees.some((currentEmployee) => currentEmployee.id === employee.id);
-      const employees = employeeExists
+      const employees = existingEmployee
         ? state.employees.map((currentEmployee) =>
             currentEmployee.id === employee.id ? employee : currentEmployee
           )
@@ -1447,6 +1547,8 @@ const appStateReducer = (state, action) => {
           id: employee.id ?? crypto.randomUUID(),
           availability: employee.availability ?? createAvailability(shiftTypes),
           status: employee.status ?? "active",
+          locationId: employee.locationId ?? state.currentLocationId,
+          sharedLocationIds: employee.sharedLocationIds ?? [],
         }, shiftTypes);
         const existingEmployeeIndex = nextEmployees.findIndex((currentEmployee) => currentEmployee.id === normalizedEmployee.id);
 
@@ -1495,9 +1597,24 @@ const appStateReducer = (state, action) => {
         ? { hasUnsavedChanges: true, status: "draft" }
         : {};
 
+      // `settings` above is the merged view; persist its location-scoped
+      // slice onto the current location record too, so it isn't lost the
+      // next time a different location is selected (or on next hydration,
+      // once this reaches the server). No-op today with a single location,
+      // since the merge and the location record describe the same thing.
+      const currentLocation = state.locations.find((location) => location.id === state.currentLocationId)
+        ?? state.locations[0]
+        ?? null;
+      const locations = currentLocation
+        ? state.locations.map((location) =>
+            location.id === currentLocation.id ? applySettingsToLocation(location, settings) : location
+          )
+        : state.locations;
+
       return {
         ...state,
         settings,
+        locations,
         employees,
         schedule: {
           ...state.schedule,
@@ -1510,6 +1627,102 @@ const appStateReducer = (state, action) => {
     }
     case "SELECT_WEEK": {
       return applyWeekContext(state, action.payload.startDate);
+    }
+    // Switches which location is in view — the multi-location analog of
+    // SELECT_WEEK. Recomputes the `settings` merge for the new location and
+    // re-derives the live schedule canvas the same way SELECT_WEEK does
+    // (applyWeekContext already location-scopes via getLocationSchedules).
+    case "SET_CURRENT_LOCATION": {
+      const nextLocation = state.locations.find((location) => location.id === action.payload.locationId);
+
+      if (!nextLocation) {
+        return state;
+      }
+
+      const settings = normalizeSettings(applyLocationToSettings(state.settings, nextLocation));
+      const nextState = { ...state, currentLocationId: nextLocation.id, settings };
+      const startDate = getCurrentWeekStartDate(settings.weekStartsOn) || state.schedule.startDate;
+
+      return applyWeekContext(nextState, startDate);
+    }
+    case "ADD_LOCATION": {
+      const nextLocation = normalizeLocation({ ...action.payload, id: action.payload?.id || crypto.randomUUID() });
+
+      return { ...state, locations: [...state.locations, nextLocation] };
+    }
+    // Generic location settings edit from outside the main Settings form
+    // (e.g. a future "Locations" admin screen) — UPDATE_SETTINGS remains the
+    // path for editing the *current* location's settings today.
+    case "UPDATE_LOCATION": {
+      const locations = state.locations.map((location) =>
+        location.id === action.payload.id ? normalizeLocation({ ...location, ...action.payload }) : location
+      );
+
+      if (action.payload.id !== state.currentLocationId) {
+        return { ...state, locations };
+      }
+
+      const updatedCurrentLocation = locations.find((location) => location.id === action.payload.id);
+
+      return {
+        ...state,
+        locations,
+        settings: normalizeSettings(applyLocationToSettings(state.settings, updatedCurrentLocation)),
+      };
+    }
+    case "ARCHIVE_LOCATION": {
+      return {
+        ...state,
+        locations: state.locations.map((location) =>
+          location.id === action.payload ? { ...location, isArchived: true } : location
+        ),
+      };
+    }
+    // Grants/revokes are additive to the employee's own record
+    // (sharedLocationIds) rather than a separate list — see
+    // multi-location-data-model-spec.md §0 ("a grant, not a second home").
+    case "GRANT_EMPLOYEE_LOCATION_ACCESS": {
+      const { employeeId, locationId } = action.payload;
+
+      return {
+        ...state,
+        employees: state.employees.map((employee) =>
+          employee.id === employeeId
+            ? { ...employee, sharedLocationIds: getUniqueValues([...(employee.sharedLocationIds ?? []), locationId]) }
+            : employee
+        ),
+      };
+    }
+    case "REVOKE_EMPLOYEE_LOCATION_ACCESS": {
+      const { employeeId, locationId } = action.payload;
+
+      return {
+        ...state,
+        employees: state.employees.map((employee) =>
+          employee.id === employeeId
+            ? { ...employee, sharedLocationIds: (employee.sharedLocationIds ?? []).filter((id) => id !== locationId) }
+            : employee
+        ),
+      };
+    }
+    // A grant to the location that's now home is redundant — drop it so
+    // "shared with" listings don't show the employee's own home location
+    // (mirrors reassign_employee_home_location's server-side RPC).
+    case "REASSIGN_EMPLOYEE_HOME_LOCATION": {
+      const { employeeId, locationId } = action.payload;
+
+      return {
+        ...state,
+        employees: state.employees.map((employee) =>
+          employee.id === employeeId
+            ? {
+                ...employee,
+                locationId,
+                sharedLocationIds: (employee.sharedLocationIds ?? []).filter((id) => id !== locationId),
+              }
+            : employee
+        ),
+      };
     }
     case "UPDATE_REQUIREMENTS": {
       const { role, day, shift, value } = action.payload;
@@ -1754,7 +1967,7 @@ const appStateReducer = (state, action) => {
 
         return upsertScheduleRecord(
           acc,
-          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, "draft", savedAt, existingRecord)
+          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, "draft", savedAt, existingRecord, state.currentLocationId)
         );
       }, state.schedules);
 
@@ -1804,7 +2017,7 @@ const appStateReducer = (state, action) => {
 
         return upsertScheduleRecord(
           acc,
-          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, status, now, existingRecord)
+          buildScheduleRecordFromLiveSchedule(state.schedule, role, state.employees, state.settings, status, now, existingRecord, state.currentLocationId)
         );
       }, state.schedules);
 
@@ -1877,7 +2090,8 @@ const appStateReducer = (state, action) => {
     // them; getLiveCopyConflicts() is what's still outstanding.
     case "COPY_LAST_WEEK": {
       const currentStart = state.schedule.startDate;
-      const sourceStart = getPriorScheduledWeekStart(state.schedules, currentStart);
+      const locationSchedules = getLocationSchedules(state);
+      const sourceStart = getPriorScheduledWeekStart(locationSchedules, currentStart);
 
       if (!currentStart || !sourceStart) {
         return state;
@@ -1887,7 +2101,7 @@ const appStateReducer = (state, action) => {
       const operatingHours = normalizeOperatingHours(state.settings.operatingHours);
       const teamRoles = getTeamRoles(state.settings, state.employees);
       const sourceByRole = Object.fromEntries(
-        state.schedules.filter((entry) => entry.startDate === sourceStart).map((entry) => [entry.role, entry])
+        locationSchedules.filter((entry) => entry.startDate === sourceStart).map((entry) => [entry.role, entry])
       );
       const employeesById = Object.fromEntries(state.employees.map((employee) => [employee.id, employee]));
 
@@ -1968,6 +2182,7 @@ const appStateReducer = (state, action) => {
       const id = buildCallOutId(weekStartDate, role, day, shift, employeeId);
       const record = {
         id,
+        locationId: state.currentLocationId,
         weekStartDate,
         role,
         day,
@@ -2034,13 +2249,57 @@ const appStateReducer = (state, action) => {
       const seededSettings = roleCoverageHasDemand(rawSettings.roleCoverage ?? {})
         ? rawSettings
         : { ...rawSettings, roleCoverage: deriveCoverageFromSchedules(schedules) };
-      const settings = normalizeSettings(seededSettings);
+
+      // Every org must have >=1 location. A bundle from a backend that
+      // hasn't run migration 0007_locations.sql yet arrives with none —
+      // synthesize a single implicit one from the org's legacy settings
+      // columns, so a single-location org behaves identically either way.
+      // See multi-location-data-model-spec.md.
+      const rawLocations = action.payload.locations?.length
+        ? action.payload.locations
+        : [{
+            id: state.currentLocationId || DEFAULT_LOCATION_ID,
+            name: seededSettings.locationName || seededSettings.businessName || 'Main location',
+            shiftTypes: seededSettings.shiftTypes,
+            shiftTimes: seededSettings.shiftTimes,
+            teamRoles: seededSettings.teamRoles,
+            weekStartsOn: seededSettings.weekStartsOn,
+            operatingHours: seededSettings.operatingHours,
+            roleCoverage: seededSettings.roleCoverage,
+          }];
+      const locations = rawLocations.map(normalizeLocation);
+      const currentLocationId = locations.some((location) => location.id === state.currentLocationId)
+        ? state.currentLocationId
+        : locations[0]?.id ?? null;
+      const currentLocation = locations.find((location) => location.id === currentLocationId) ?? locations[0];
+      const settings = normalizeSettings(
+        currentLocation ? applyLocationToSettings(seededSettings, currentLocation) : seededSettings
+      );
       const shiftTypes = getShiftTypes(settings);
-      const employees = action.payload.employees.map((employee) => normalizeEmployee(employee, shiftTypes));
+      // Any record hydrated with no locationId (pre-migration data, or a
+      // just-synthesized implicit location) is assumed to belong to the
+      // resolved current location — true by construction for every org that
+      // only ever had one.
+      const employees = action.payload.employees.map((employee) => normalizeEmployee(
+        {
+          ...employee,
+          locationId: employee.locationId || currentLocationId,
+          sharedLocationIds: employee.sharedLocationIds ?? [],
+        },
+        shiftTypes,
+      ));
+      const scheduleRecords = (schedules ?? []).map((record) => ({
+        ...record,
+        locationId: record.locationId || currentLocationId,
+      }));
+      const callOuts = (action.payload.callOuts ?? []).map((callOut) => ({
+        ...callOut,
+        locationId: callOut.locationId || currentLocationId,
+      }));
       const startDate = state.schedule.startDate || getCurrentWeekStartDate(settings.weekStartsOn);
 
       return applyWeekContext(
-        { ...state, settings, employees, schedules, callOuts: action.payload.callOuts ?? [], isHydrated: true },
+        { ...state, settings, locations, currentLocationId, employees, schedules: scheduleRecords, callOuts, isHydrated: true },
         startDate,
       );
     }
@@ -2057,10 +2316,53 @@ const appStateReducer = (state, action) => {
         }
 
         const existing = state.employees.find((employee) => employee.id === row.id);
-        const merged = normalizeEmployee({ ...existing, ...row, availability: existing?.availability }, shiftTypes);
+        const merged = normalizeEmployee(
+          { ...existing, ...row, availability: existing?.availability, sharedLocationIds: existing?.sharedLocationIds },
+          shiftTypes,
+        );
         const employees = existing
           ? state.employees.map((employee) => (employee.id === row.id ? merged : employee))
           : [...state.employees, merged];
+
+        return { ...state, employees };
+      }
+
+      if (table === "locations") {
+        if (eventType === "DELETE") {
+          return { ...state, locations: state.locations.filter((location) => location.id !== row.id) };
+        }
+
+        const merged = normalizeLocation(row);
+        const exists = state.locations.some((location) => location.id === row.id);
+        const locations = exists
+          ? state.locations.map((location) => (location.id === row.id ? merged : location))
+          : [...state.locations, merged];
+        const nextState = { ...state, locations };
+
+        // Another session editing the location I'm currently viewing should
+        // update my `settings` merge too, the same way an incoming
+        // schedule_records change re-derives the live canvas below.
+        if (row.id !== state.currentLocationId) {
+          return nextState;
+        }
+
+        return { ...nextState, settings: normalizeSettings(applyLocationToSettings(state.settings, merged)) };
+      }
+
+      // Folded into the matching employee's sharedLocationIds rather than
+      // kept as its own list — see multi-location-data-model-spec.md §0.
+      if (table === "employee_location_access") {
+        const employees = state.employees.map((employee) => {
+          if (employee.id !== row.employeeId) {
+            return employee;
+          }
+
+          const sharedLocationIds = eventType === "DELETE"
+            ? (employee.sharedLocationIds ?? []).filter((id) => id !== row.locationId)
+            : getUniqueValues([...(employee.sharedLocationIds ?? []), row.locationId]);
+
+          return { ...employee, sharedLocationIds };
+        });
 
         return { ...state, employees };
       }
@@ -2109,7 +2411,10 @@ export const readOrgMirror = (orgId) => {
     const parsed = raw ? JSON.parse(raw) : null;
 
     if (parsed && parsed.settings && Array.isArray(parsed.employees) && Array.isArray(parsed.schedules)) {
-      return { callOuts: [], ...parsed };
+      // `locations` defaults to [] (not undefined) for a mirror written
+      // before this change — HYDRATE_FROM_SERVER already treats an empty
+      // array as "synthesize one", same as a pre-migration server bundle.
+      return { callOuts: [], locations: [], ...parsed };
     }
   } catch (error) {
     console.warn('Could not read local schedule mirror', error);
@@ -2118,9 +2423,9 @@ export const readOrgMirror = (orgId) => {
   return null;
 };
 
-export const writeOrgMirror = (orgId, { settings, employees, schedules, callOuts = [] }) => {
+export const writeOrgMirror = (orgId, { settings, locations = [], employees, schedules, callOuts = [] }) => {
   try {
-    window.localStorage.setItem(mirrorKey(orgId), JSON.stringify({ settings, employees, schedules, callOuts }));
+    window.localStorage.setItem(mirrorKey(orgId), JSON.stringify({ settings, locations, employees, schedules, callOuts }));
   } catch (error) {
     console.warn('Could not write local schedule mirror', error);
   }
@@ -2135,7 +2440,7 @@ export const AppStateProvider = ({ children }) => {
   const [syncStatus, setSyncStatus] = useState('saved');
   const autosaveTimerRef = useRef(null);
   const syncTimerRef = useRef(null);
-  const previousSyncedRef = useRef({ employees: [], schedules: [], settings: null, callOuts: [] });
+  const previousSyncedRef = useRef({ employees: [], schedules: [], settings: null, callOuts: [], locations: [] });
   const skipNextSyncRef = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -2203,14 +2508,25 @@ export const AppStateProvider = ({ children }) => {
       return;
     }
 
-    const { employees, schedules, settings, callOuts } = stateRef.current;
+    const { employees, schedules, settings, callOuts, locations } = stateRef.current;
     const previous = force
-      ? { employees: [], schedules: [], settings: null, callOuts: [] }
+      ? { employees: [], schedules: [], settings: null, callOuts: [], locations: [] }
       : previousSyncedRef.current;
 
     setSyncStatus('saving');
 
     const pending = [];
+
+    // Location-scoped settings edits (Settings save projects onto the
+    // current location — see UPDATE_SETTINGS) sync here, independent of the
+    // still-current org-row settings push below.
+    (locations ?? []).forEach((location) => {
+      const previousLocation = (previous.locations ?? []).find((entry) => entry.id === location.id);
+
+      if (!previousLocation || JSON.stringify(previousLocation) !== JSON.stringify(location)) {
+        pending.push(upsertLocationRow(orgId, location));
+      }
+    });
 
     employees.forEach((employee) => {
       const { availability, ...core } = employee;
@@ -2258,7 +2574,7 @@ export const AppStateProvider = ({ children }) => {
       return;
     }
 
-    previousSyncedRef.current = { employees, schedules, settings, callOuts };
+    previousSyncedRef.current = { employees, schedules, settings, callOuts, locations };
     setSyncStatus('saved');
   }, [orgId]);
 
@@ -2278,6 +2594,7 @@ export const AppStateProvider = ({ children }) => {
         schedules: state.schedules,
         settings: state.settings,
         callOuts: state.callOuts,
+        locations: state.locations,
       };
       return undefined;
     }
@@ -2296,7 +2613,7 @@ export const AppStateProvider = ({ children }) => {
     }
 
     writeOrgMirror(orgId, state);
-  }, [orgId, state.isHydrated, state.settings, state.employees, state.schedules, state.callOuts]);
+  }, [orgId, state.isHydrated, state.settings, state.locations, state.employees, state.schedules, state.callOuts]);
 
   // Retry the full bundle as soon as the browser reports a connection back.
   useEffect(() => {

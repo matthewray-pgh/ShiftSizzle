@@ -1,6 +1,6 @@
 @use '../../Assets/Styles.scss' as styles;
 
-.day-open-toggle {
+.toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -12,7 +12,7 @@
   font-weight: 600;
   cursor: pointer;
 
-  &.is-open {
+  &.is-on {
     color: styles.$secondary;
   }
 
@@ -27,7 +27,7 @@
     background: rgba(148, 163, 184, 0.38);
     transition: background 180ms ease;
 
-    .day-open-toggle.is-open & {
+    .toggle.is-on & {
       background: rgba(255, 107, 53, 0.28);
     }
   }
@@ -41,7 +41,7 @@
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
     transition: transform 180ms ease;
 
-    .day-open-toggle.is-open & {
+    .toggle.is-on & {
       transform: translateX(1.15rem);
     }
   }

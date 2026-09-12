@@ -30,22 +30,21 @@ describe('Account view (not linked to a roster employee)', () => {
   it('renders blank name fields by default and disables save', async () => {
     await renderView(Account, { employeeId: null });
 
-    expect(screen.getByText('Update your profile')).toBeInTheDocument();
     expect(screen.getByLabelText('First Name')).toHaveValue('');
     expect(screen.getByLabelText('Last Name')).toHaveValue('');
     expect(screen.getByLabelText('Phone Number')).toHaveValue('');
     expect(screen.getByText('No changes to save')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('requires first and last name before allowing save, and leaves phone optional', async () => {
     await renderView(Account, { employeeId: null });
 
     fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Jen' } });
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Ray' } });
-    expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
   });
 
   it('discards unsaved edits', async () => {
@@ -53,9 +52,9 @@ describe('Account view (not linked to a roster employee)', () => {
 
     fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Jen' } });
     fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Ray' } });
-    expect(screen.getAllByText('Unsaved changes').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Unsaved').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
     expect(screen.getByLabelText('First Name')).toHaveValue('');
     expect(screen.getByLabelText('Last Name')).toHaveValue('');
@@ -71,7 +70,7 @@ describe('Account view (linked to a roster employee)', () => {
     expect(screen.getByLabelText('Name')).toHaveAttribute('readonly');
     expect(screen.getByLabelText('Phone Number')).toHaveValue('(555) 010-1001');
     expect(screen.getByLabelText('Email')).toHaveValue('jen@shiftsizzle.app');
-    expect(screen.getByText(/Linked to your roster profile/)).toBeInTheDocument();
+    expect(screen.getByText('Managed by your manager.')).toBeInTheDocument();
     expect(screen.getByText(/General Manager/)).toBeInTheDocument();
   });
 
@@ -85,9 +84,9 @@ describe('Account view (linked to a roster employee)', () => {
 
     fireEvent.change(screen.getByLabelText('Phone Number'), { target: { value: '(555) 999-0000' } });
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'jen.new@shiftsizzle.app' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByText('All changes saved')).toBeInTheDocument();
+    expect(screen.getByText('Saved')).toBeInTheDocument();
 
     // Async variant: the debounced sync effect's setTimeout callback calls
     // upsertEmployeeRow, which itself awaits the fake client's upsert — a
@@ -106,9 +105,9 @@ describe('Account view (linked to a roster employee)', () => {
 
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'not-an-email' } });
     expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(screen.getByLabelText('Email')).toHaveValue('jen@shiftsizzle.app');
   });
 });
