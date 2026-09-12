@@ -13,6 +13,7 @@ afterEach(() => {
 describe('org mirror (offline-reload cache)', () => {
   const bundle = {
     settings: { businessName: 'ShiftSizzle', shiftTypes: ['Open'] },
+    locations: [{ id: 'loc-1', name: 'Main location' }],
     employees: [{ id: 'e1', name: 'Ana' }],
     schedules: [{ id: '2026-05-25__Server', role: 'Server', status: 'draft' }],
     callOuts: [],

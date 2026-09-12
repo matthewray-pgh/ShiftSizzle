@@ -218,7 +218,9 @@ export const Account = () => {
                   <span className="account__dirty-indicator">Unsaved</span>
                 ) : justSaved ? (
                   <span className="account__saved">Saved</span>
-                ) : null}
+                ) : (
+                  <span className="account__save-bar-hint">No changes to save</span>
+                )}
               </div>
               <div className="account__save-bar-actions">
                 <button type="button" className="button-outline" onClick={handleDiscard} disabled={!isDirty}>

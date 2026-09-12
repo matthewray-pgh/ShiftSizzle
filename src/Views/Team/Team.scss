@@ -154,6 +154,10 @@
     }
   }
 
+  &__filters-card {
+    margin: 0;
+  }
+
   &__filters-toggle {
     display: none;
     align-items: center;
@@ -161,9 +165,8 @@
     gap: 10px;
     width: 100%;
     padding: 10px 14px;
-    border: 1px solid rgba(15, 23, 42, 0.12);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.94);
+    border: 0;
+    background: none;
     color: #14213d;
     cursor: pointer;
     font: inherit;
@@ -173,10 +176,6 @@
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-    }
-
-    &:hover {
-      background: #f8fafc;
     }
   }
 
@@ -1414,32 +1413,7 @@
     }
   }
 
-  &__availability-summary-card {
-    margin-top: 8px;
-    padding: 14px 16px;
-    border-radius: 14px;
-    background: #f8fafc;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-
-    p {
-      margin: 10px 0 0;
-      color: #14213d;
-    }
-  }
-
-  &__availability-summary-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-
-    strong {
-      display: block;
-      color: #14213d;
-      margin-top: 3px;
-    }
-  }
-
+  // Still used by the "Start your roster" empty state label.
   &__availability-summary-label {
     display: block;
     font-size: 0.78rem;
@@ -1447,16 +1421,6 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: #1d4ed8;
-  }
-
-  &__availability-summary-link {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: #1d4ed8;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
   }
 
   &__availability-header {
@@ -1625,11 +1589,6 @@
       flex: 1;
     }
 
-    &__availability-summary-header {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
     &__member-panel {
       max-width: none;
       padding: 0.85rem 0.95rem;
@@ -1658,8 +1617,20 @@
       gap: 0.5rem;
     }
 
+    &__filters-card {
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+
     &__filters-toggle {
       display: flex;
+
+      &:hover {
+        background: rgba(15, 23, 42, 0.03);
+      }
     }
 
     &__filters-panel {
@@ -1670,19 +1641,23 @@
       &.is-expanded {
         grid-template-rows: 1fr;
       }
+
+      // Padding lives on the box being height-collapsed, so without this it
+      // remains as a visible strip even when the row track shrinks to 0.
+      &:not(.is-expanded) &-inner {
+        padding-top: 0;
+        padding-bottom: 0;
+      }
     }
 
     &__filters-panel-inner {
       flex-direction: column;
       flex-wrap: nowrap;
       align-items: stretch;
+      transition: padding 240ms ease;
       min-height: 0;
       overflow: hidden;
       padding: 1rem;
-      border: 1px solid rgba(15, 23, 42, 0.1);
-      border-radius: 14px;
-      background: #fff;
-      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
     }
 
     &__filter-group--search {

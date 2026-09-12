@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Button, ContentPanel, CoverageDayRow, DayHoursRow, InputField } from '../../Components';
+import { Button, ContentPanel, InputField } from '../../Components';
 import {
   DAYS,
   getCurrentWeekStartDate,
@@ -11,15 +11,34 @@ import {
   getTeamRoles,
   useAppState,
 } from '../../state/AppState';
-import { SETUP_TEMPLATES, settingsFromTemplate } from '../../state/setupTemplates';
-import { AI_UNAVAILABLE, requestAiSetup } from '../../state/aiAssist';
+import {
+  BusinessHoursFields,
+  CoverageTargetsFields,
+  ShiftTypesFields,
+  TeamRolesFields,
+  useSettingsForm,
+} from '../Settings/SettingsFields';
+import {
+  SETUP_TEMPLATES,
+  buildTemplateRoleCoverage,
+  getSetupTemplate,
+  settingsFromTemplate,
+} from '../../state/setupTemplates';
+import { AI_UNAVAILABLE, requestAiSetup, requestTunedCoverage } from '../../state/aiAssist';
 import { supabase } from '../../lib/supabaseClient';
 
 import './SetupWizard.scss';
 
-const STEPS = ['template', 'hours', 'coverage', 'team', 'build'];
+// The guided walk (shiftTypes -> coverage) is literally the Settings page's
+// own field components, one at a time, each step's Continue committing
+// immediately — see multi-location-... no, see the Settings/setup-wizard
+// review: reusing the same components is what keeps "edit hours" (etc.)
+// from having two implementations that quietly drift apart.
+const STEPS = ['template', 'shiftTypes', 'teamRoles', 'hours', 'coverage', 'team', 'build'];
 const STEP_LABEL = {
   template: 'Business type',
+  shiftTypes: 'Shift types',
+  teamRoles: 'Team roles',
   hours: 'Hours',
   coverage: 'Coverage',
   team: 'Team',
@@ -28,11 +47,12 @@ const STEP_LABEL = {
 
 const fullAvailability = (shiftTypes) => Object.fromEntries(DAYS.map((day) => [day, [...shiftTypes]]));
 
-const emptyCoverageRow = (shiftTypes) => Object.fromEntries(shiftTypes.map((shift) => [shift, 0]));
-
 // The first step whose requirement isn't met yet — so re-entering the
 // wizard after finishing part of it resumes where it left off rather than
 // starting over (and re-committing a template would clobber earlier edits).
+// Shift types and team roles always have a usable default the moment a
+// template is committed, so they're worth a review stop but never block
+// resuming past them.
 const firstIncompleteStep = (readiness) => {
   if (!readiness.hasWeek) return 'template';
   if (!readiness.hasHours) return 'hours';
@@ -49,12 +69,12 @@ export const SetupWizard = () => {
   const { state, dispatch } = useAppState();
   const { settings, employees } = state;
   const navigate = useNavigate();
+  const f = useSettingsForm(state);
 
   // Rendered inside <HydrationGate>, so `state` is already loaded here.
   const [step, setStep] = useState(() => firstIncompleteStep(getSchedulerReadiness(state)));
   const [templateId, setTemplateId] = useState('full-service-restaurant');
   const [weekStartsOn, setWeekStartsOn] = useState(settings.weekStartsOn || 'Monday');
-  const [coverageRole, setCoverageRole] = useState('');
   const [teamDraft, setTeamDraft] = useState({ name: '', roles: [] });
   const [addedTeam, setAddedTeam] = useState([]);
   const [building, setBuilding] = useState(false);
@@ -68,15 +88,15 @@ export const SetupWizard = () => {
   const [aiError, setAiError] = useState('');
   const [aiSummary, setAiSummary] = useState('');
 
+  // Optional "tune a picked template for my size" — adjusts only the
+  // coverage numbers, keeping the template's roles/shifts/hours.
+  const [sizeHint, setSizeHint] = useState('');
+  const [tuning, setTuning] = useState(false);
+  const [tuneNote, setTuneNote] = useState('');
+
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
   const openDays = getOpenDays(settings);
-
-  useEffect(() => {
-    if (!coverageRole && teamRoles.length) {
-      setCoverageRole(teamRoles[0]);
-    }
-  }, [coverageRole, teamRoles]);
 
   // On each step change, jump the viewport to the top and move focus to the
   // new step's heading so keyboard and screen-reader users land at the start
@@ -95,18 +115,84 @@ export const SetupWizard = () => {
   }, [step]);
 
   const stepIndex = STEPS.indexOf(step);
-  const goNext = () => setStep(STEPS[Math.min(stepIndex + 1, STEPS.length - 1)]);
-  const goBack = () => setStep(STEPS[Math.max(stepIndex - 1, 0)]);
+  // Direction drives the per-step slide animation (forward from the right,
+  // Back from the left).
+  const [direction, setDirection] = useState('next');
+  const goNext = () => {
+    setDirection('next');
+    setStep(STEPS[Math.min(stepIndex + 1, STEPS.length - 1)]);
+  };
+  const goBack = () => {
+    setDirection('back');
+    setStep(STEPS[Math.max(stepIndex - 1, 0)]);
+  };
+  const goToStep = (target) => {
+    const targetIndex = STEPS.indexOf(target);
 
-  // ---- Step 1: template + week start ----
-  const commitTemplate = () => {
-    const payload = settingsFromTemplate(templateId, { currentSettings: settings, weekStartsOn });
-
-    if (!payload) {
+    if (targetIndex < 0 || targetIndex === stepIndex) {
       return;
     }
 
-    dispatch({ type: 'UPDATE_SETTINGS', payload });
+    setDirection(targetIndex > stepIndex ? 'next' : 'back');
+    setStep(target);
+  };
+
+  // A guided-walk step (shiftTypes/teamRoles/hours/coverage) commits its
+  // slice of the shared draft immediately on Continue, the same way the old
+  // per-step dispatches did — so `state.settings` (and the outer
+  // `teamRoles`/`shiftTypes`/`openDays` above) stay current for later steps.
+  const commitAndAdvance = () => {
+    dispatch({ type: 'UPDATE_SETTINGS', payload: f.form });
+    goNext();
+  };
+
+  // ---- Step 1: template + week start ----
+  const commitTemplate = async () => {
+    const base = settingsFromTemplate(templateId, { currentSettings: settings, weekStartsOn });
+
+    if (!base) {
+      return;
+    }
+
+    let roleCoverage = base.roleCoverage;
+    let summary = '';
+    setTuneNote('');
+
+    const note = sizeHint.trim();
+
+    if (note && aiEnabled) {
+      const def = getSetupTemplate(templateId);
+      setTuning(true);
+
+      const result = await requestTunedCoverage(supabase, {
+        templateLabel: def.label,
+        roles: def.teamRoles,
+        shiftTypes: def.shiftTypes,
+        note,
+        currentSettings: settings,
+      });
+
+      setTuning(false);
+
+      if (result.error === AI_UNAVAILABLE) {
+        setAiEnabled(false);
+      } else if (result.error) {
+        setTuneNote("Couldn't adjust staffing automatically — using the template's numbers. Tune them on the coverage step.");
+      } else {
+        // Merge the tuned counts over the template's compact spec, then
+        // expand against the template's own open days.
+        const mergedSpec = { ...def.coverage };
+
+        Object.entries(result.coverageByRole).forEach(([role, byShift]) => {
+          mergedSpec[role] = { ...(def.coverage[role] ?? {}), ...byShift };
+        });
+
+        roleCoverage = buildTemplateRoleCoverage(mergedSpec, base.operatingHours);
+        summary = result.summary;
+      }
+    }
+
+    dispatch({ type: 'UPDATE_SETTINGS', payload: { ...base, roleCoverage } });
     // Put the live canvas on the real current week straight away so the
     // silent autosave has a valid week to write against, not "".
     const currentWeek = getCurrentWeekStartDate(weekStartsOn);
@@ -115,7 +201,10 @@ export const SetupWizard = () => {
       dispatch({ type: 'SELECT_WEEK', payload: { startDate: currentWeek } });
     }
 
-    setCoverageRole('');
+    if (summary) {
+      setTuneNote(summary);
+    }
+
     goNext();
   };
 
@@ -156,93 +245,38 @@ export const SetupWizard = () => {
 
     setWeekStartsOn(weekStartsOn || result.payload.weekStartsOn);
     setAiSummary(result.summary);
-    setCoverageRole('');
     goNext();
   };
 
-  // ---- Step 2: hours ----
-  const updateHours = (day, field, value) => {
-    dispatch({
-      type: 'UPDATE_SETTINGS',
-      payload: {
-        operatingHours: {
-          ...settings.operatingHours,
-          [day]: { ...settings.operatingHours[day], [field]: value },
-        },
-      },
-    });
+  // ---- Step: hours (shared with Settings > Business Hours) ----
+  const formOpenDays = getOpenDays(f.form);
+
+  // ---- Step: coverage (shared with Settings > Coverage Targets) ----
+  // Which roles the manager has actually looked at on this step — a role is
+  // "reviewed" once it's been the selected one. Feeds the pill check marks
+  // and the soft "still to review" nudge (Continue is never blocked, since
+  // the template already filled every role in). Wizard-only — Settings'
+  // own Coverage Targets section has no equivalent concept.
+  const [reviewedRoles, setReviewedRoles] = useState(() => new Set());
+  const markReviewed = (role) => setReviewedRoles((prev) => (
+    !role || prev.has(role) ? prev : new Set(prev).add(role)
+  ));
+
+  useEffect(() => {
+    if (step === 'coverage') {
+      markReviewed(f.coverageRole);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, f.coverageRole]);
+
+  const pickCoverageRole = (role) => {
+    f.setCoverageRole(role);
+    markReviewed(role);
   };
 
-  const toggleDay = (day) => updateHours(day, 'isOpen', !settings.operatingHours[day]?.isOpen);
+  const unreviewedRoles = f.form.teamRoles.filter((role) => !reviewedRoles.has(role));
 
-  const applyHoursToAll = (sourceDay) => {
-    const source = settings.operatingHours[sourceDay];
-
-    dispatch({
-      type: 'UPDATE_SETTINGS',
-      payload: { operatingHours: Object.fromEntries(DAYS.map((day) => [day, { ...source }])) },
-    });
-  };
-
-  // ---- Step 3: coverage ----
-  const activeCoverageRole = teamRoles.includes(coverageRole) ? coverageRole : (teamRoles[0] ?? '');
-  const coverageRow = (day) =>
-    settings.roleCoverage?.[activeCoverageRole]?.[day] ?? emptyCoverageRow(shiftTypes);
-
-  const updateCoverage = (day, shift, rawValue) => {
-    const value = Math.max(0, parseInt(rawValue, 10) || 0);
-    const currentGrid = settings.roleCoverage?.[activeCoverageRole] ?? {};
-
-    dispatch({
-      type: 'UPDATE_SETTINGS',
-      payload: {
-        roleCoverage: {
-          ...(settings.roleCoverage ?? {}),
-          [activeCoverageRole]: {
-            ...currentGrid,
-            [day]: { ...emptyCoverageRow(shiftTypes), ...(currentGrid[day] ?? {}), [shift]: value },
-          },
-        },
-      },
-    });
-  };
-
-  // Optional per-shift time range — same additive metadata Settings edits;
-  // an empty field just means "no time set". Send the whole map since
-  // UPDATE_SETTINGS replaces `shiftTimes` wholesale.
-  const updateShiftTime = (label, field, value) => {
-    dispatch({
-      type: 'UPDATE_SETTINGS',
-      payload: {
-        shiftTimes: {
-          ...(settings.shiftTimes ?? {}),
-          [label]: {
-            startTime: '',
-            endTime: '',
-            ...(settings.shiftTimes?.[label] ?? {}),
-            [field]: value,
-          },
-        },
-      },
-    });
-  };
-
-  const applyCoverageToAll = (sourceDay) => {
-    const currentGrid = settings.roleCoverage?.[activeCoverageRole] ?? {};
-    const sourceRow = { ...emptyCoverageRow(shiftTypes), ...(currentGrid[sourceDay] ?? {}) };
-
-    dispatch({
-      type: 'UPDATE_SETTINGS',
-      payload: {
-        roleCoverage: {
-          ...(settings.roleCoverage ?? {}),
-          [activeCoverageRole]: Object.fromEntries(DAYS.map((day) => [day, { ...sourceRow }])),
-        },
-      },
-    });
-  };
-
-  // ---- Step 4: team ----
+  // ---- Step: team ----
   const toggleDraftRole = (role) => {
     setTeamDraft((draft) => ({
       ...draft,
@@ -276,7 +310,7 @@ export const SetupWizard = () => {
     setTeamDraft({ name: '', roles: [] });
   };
 
-  // ---- Step 5: build ----
+  // ---- Step: build ----
   const activeEmployeeCount = useMemo(
     () => employees.filter((employee) => employee.status !== 'archived').length,
     [employees],
@@ -310,20 +344,36 @@ export const SetupWizard = () => {
   const skipToSettings = () => navigate('/settings');
 
   return (
-    <div className="setup">
+    <div className="setup" data-dir={direction}>
       <div className="setup__head">
         <h1>Set up your schedule</h1>
         <p>Pick your business type and we'll fill in the hours, roles, and coverage — you review and adjust.</p>
         <ol className="setup__progress" aria-label="Setup progress">
-          {STEPS.map((entry, index) => (
-            <li
-              key={entry}
-              className={`setup__progress-step ${index === stepIndex ? 'is-current' : ''} ${index < stepIndex ? 'is-done' : ''}`.trim()}
-            >
-              <span className="setup__progress-dot" aria-hidden="true">{index < stepIndex ? '✓' : index + 1}</span>
-              {STEP_LABEL[entry]}
-            </li>
-          ))}
+          {STEPS.map((entry, index) => {
+            const isCurrent = index === stepIndex;
+            // Every step but the first is unreachable until a template (or
+            // the AI) has been committed — before that there are no settings
+            // to review.
+            const locked = index !== 0 && !settings.weekStartsOn;
+
+            return (
+              <li
+                key={entry}
+                className={`setup__progress-step ${isCurrent ? 'is-current' : ''} ${index < stepIndex ? 'is-done' : ''} ${locked ? 'is-locked' : ''}`.trim()}
+              >
+                <button
+                  type="button"
+                  className="setup__progress-button"
+                  onClick={() => goToStep(entry)}
+                  disabled={locked || isCurrent || tuning}
+                  aria-current={isCurrent ? 'step' : undefined}
+                >
+                  <span className="setup__progress-dot" aria-hidden="true">{index < stepIndex ? '✓' : index + 1}</span>
+                  {STEP_LABEL[entry]}
+                </button>
+              </li>
+            );
+          })}
         </ol>
       </div>
 
@@ -404,16 +454,63 @@ export const SetupWizard = () => {
             </div>
           </div>
 
+          {aiEnabled && (
+            <div className="setup__field">
+              <label className="setup__field-label" htmlFor="setup-size-hint">
+                Fine-tune staffing for your location <span className="setup__optional">(optional)</span>
+              </label>
+              <textarea
+                id="setup-size-hint"
+                className="setup__ai-input"
+                rows={2}
+                value={sizeHint}
+                onChange={(event) => setSizeHint(event.target.value)}
+                placeholder="Ex. We seat about 60, dinner is our busy service, two turns on weekends."
+              />
+              <p className="setup__shift-times-hint">
+                We'll adjust the coverage numbers to match — the roles, shifts, and hours stay as they are.
+              </p>
+            </div>
+          )}
+
           <div className="setup__actions">
             <button type="button" className="button-outline" onClick={skipToSettings}>
               Set up manually
             </button>
-            <Button type="button" onClick={commitTemplate} disabled={!templateId || !weekStartsOn}>
-              Continue
+            <Button type="button" onClick={commitTemplate} disabled={!templateId || !weekStartsOn || tuning}>
+              {tuning ? 'Adjusting…' : 'Continue'}
             </Button>
           </div>
           </>
           )}
+        </ContentPanel>
+      )}
+
+      {step === 'shiftTypes' && (
+        <ContentPanel className="setup__card">
+          <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your shift types</h2>
+          <p className="setup__hint">We filled these in from the template. Add, remove, or set times.</p>
+
+          <ShiftTypesFields f={f} />
+
+          <div className="setup__actions">
+            <button type="button" className="button-outline" onClick={goBack}>Back</button>
+            <Button type="button" onClick={commitAndAdvance} disabled={f.form.shiftTypes.length === 0}>Continue</Button>
+          </div>
+        </ContentPanel>
+      )}
+
+      {step === 'teamRoles' && (
+        <ContentPanel className="setup__card">
+          <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your team roles</h2>
+          <p className="setup__hint">These came from the template too. Add any you're missing, or remove ones you don't use.</p>
+
+          <TeamRolesFields f={f} />
+
+          <div className="setup__actions">
+            <button type="button" className="button-outline" onClick={goBack}>Back</button>
+            <Button type="button" onClick={commitAndAdvance} disabled={f.form.teamRoles.length === 0}>Continue</Button>
+          </div>
         </ContentPanel>
       )}
 
@@ -423,21 +520,12 @@ export const SetupWizard = () => {
           <p className="setup__hint">
             {aiSummary || 'We filled these in from the template. Fix any that are off.'}
           </p>
-          <div className="setup__hours">
-            {DAYS.map((day) => (
-              <DayHoursRow
-                key={day}
-                day={day}
-                hours={settings.operatingHours[day] ?? { isOpen: false, openTime: '', closeTime: '' }}
-                onChangeTime={(field, value) => updateHours(day, field, value)}
-                onToggle={() => toggleDay(day)}
-                onApplyToAll={() => applyHoursToAll(day)}
-              />
-            ))}
-          </div>
+
+          <BusinessHoursFields f={f} />
+
           <div className="setup__actions">
             <button type="button" className="button-outline" onClick={goBack}>Back</button>
-            <Button type="button" onClick={goNext} disabled={openDays.length === 0}>Continue</Button>
+            <Button type="button" onClick={commitAndAdvance} disabled={formOpenDays.length === 0}>Continue</Button>
           </div>
         </ContentPanel>
       )}
@@ -446,75 +534,20 @@ export const SetupWizard = () => {
         <ContentPanel className="setup__card">
           <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm coverage targets</h2>
           <p className="setup__hint">
-            How many of each role you need per shift. The template's a starting point — tune it or move on.
+            {tuneNote || 'How many of each role you need per shift. The template\'s a starting point — tune it or move on.'}
           </p>
-          <label className="setup__field-label" htmlFor="setup-coverage-role">Role</label>
-          <select
-            id="setup-coverage-role"
-            className="setup__select"
-            value={activeCoverageRole}
-            onChange={(event) => setCoverageRole(event.target.value)}
-          >
-            {teamRoles.map((role) => (
-              <option key={role} value={role}>{role}</option>
-            ))}
-          </select>
 
-          <details className="setup__shift-times">
-            <summary>Adjust shift times</summary>
-            <p className="setup__shift-times-hint">
-              Optional. Shift labels and times can also be changed later in Settings.
+          {unreviewedRoles.length > 0 && (
+            <p className="setup__review-hint">
+              Still to review: {unreviewedRoles.join(', ')}
             </p>
-            <div className="setup__shift-times-grid">
-              {shiftTypes.map((shift) => {
-                const times = settings.shiftTimes?.[shift] ?? { startTime: '', endTime: '' };
+          )}
 
-                return (
-                  <div key={shift} className="setup__shift-times-row">
-                    <strong>{shift}</strong>
-                    <label>
-                      <span>Start</span>
-                      <input
-                        type="time"
-                        min="00:00"
-                        max="23:59"
-                        value={times.startTime ?? ''}
-                        onChange={(event) => updateShiftTime(shift, 'startTime', event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <span>End</span>
-                      <input
-                        type="time"
-                        min="00:00"
-                        max="23:59"
-                        value={times.endTime ?? ''}
-                        onChange={(event) => updateShiftTime(shift, 'endTime', event.target.value)}
-                      />
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
+          <CoverageTargetsFields f={f} onSelectRole={pickCoverageRole} reviewed={reviewedRoles} />
 
-          <div className="setup__coverage">
-            {DAYS.map((day) => (
-              <CoverageDayRow
-                key={day}
-                day={day}
-                isClosed={!settings.operatingHours?.[day]?.isOpen}
-                settings={settings}
-                shiftTypes={shiftTypes}
-                values={coverageRow(day)}
-                onChange={(shift, value) => updateCoverage(day, shift, value)}
-                onApplyToAll={() => applyCoverageToAll(day)}
-              />
-            ))}
-          </div>
           <div className="setup__actions">
             <button type="button" className="button-outline" onClick={goBack}>Back</button>
-            <Button type="button" onClick={goNext}>Continue</Button>
+            <Button type="button" onClick={commitAndAdvance}>Continue</Button>
           </div>
         </ContentPanel>
       )}
@@ -594,11 +627,27 @@ export const SetupWizard = () => {
             <li><strong>{rolesWithTargets.length}</strong> {rolesWithTargets.length === 1 ? 'role' : 'roles'} with coverage targets</li>
             <li><strong>{activeEmployeeCount}</strong> team {activeEmployeeCount === 1 ? 'member' : 'members'}</li>
           </ul>
-          <p className="setup__hint">
-            {activeEmployeeCount > 0 && rolesWithTargets.length > 0
-              ? 'Build this week now and we’ll assign people automatically — you review and publish.'
-              : 'Open the builder to start assigning shifts for this week.'}
-          </p>
+          {activeEmployeeCount === 0 ? (
+            <p className="setup__warning">
+              <i className="fas fa-triangle-exclamation" aria-hidden="true" />
+              You don't have any team members yet — add some before building a schedule.{' '}
+              <button type="button" className="setup__link" onClick={() => goToStep('team')}>
+                Go back to Team
+              </button>
+            </p>
+          ) : rolesWithTargets.length === 0 ? (
+            <p className="setup__warning">
+              <i className="fas fa-triangle-exclamation" aria-hidden="true" />
+              No coverage targets are set yet — add some before building a schedule.{' '}
+              <button type="button" className="setup__link" onClick={() => goToStep('coverage')}>
+                Go back to Coverage
+              </button>
+            </p>
+          ) : (
+            <p className="setup__hint">
+              Build this week now and we’ll assign people automatically — you review and publish.
+            </p>
+          )}
           <div className="setup__actions setup__actions--stack">
             <Button
               type="button"

@@ -1,0 +1,44 @@
+@use '../../Assets/Styles.scss' as styles;
+
+.role-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+
+  &__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid rgba(15, 23, 42, 0.16);
+    border-radius: 999px;
+    background: #fff;
+    color: styles.$text;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+
+    &.is-active {
+      border-color: rgba(255, 107, 53, 0.5);
+      background: rgba(255, 107, 53, 0.12);
+      color: #c2410c;
+    }
+  }
+
+  &__check {
+    font-size: 0.78rem;
+    color: rgba(15, 23, 42, 0.22);
+
+    .role-pills__pill.is-reviewed & {
+      color: styles.$success;
+    }
+  }
+
+  &__total {
+    font-weight: 700;
+    font-size: 0.76rem;
+    opacity: 0.65;
+  }
+}

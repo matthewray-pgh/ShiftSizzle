@@ -417,6 +417,7 @@ export const Dashboard = () => {
   const readiness = useMemo(() => getSchedulerReadiness(state), [state]);
   const setupSteps = isManager ? readiness.steps : [];
   const setupIncomplete = isManager && !readiness.ready;
+  const setupStarted = setupSteps.some((entry) => entry.done);
 
   const buildResumeHref = (week) => {
     const lead = week.items.find((item) => item.openSlots > 0) ?? week.items[0];
@@ -431,25 +432,6 @@ export const Dashboard = () => {
 
   return (
     <div className="dashboard">
-      {isManager && setupIncomplete && (
-        <ContentPanel className="dashboard__resume dashboard__setup-card">
-          <div className="dashboard__section-heading">
-            <h2>Finish setting up</h2>
-            <Link className="button-outline dashboard__resume-action" to="/setup">
-              Continue setup
-            </Link>
-          </div>
-          <ul className="dashboard__setup-steps">
-            {setupSteps.map((entry) => (
-              <li key={entry.key} className={entry.done ? 'is-done' : ''}>
-                <i className={`fas ${entry.done ? 'fa-circle-check' : 'fa-circle'}`} aria-hidden="true" />
-                {entry.label}
-              </li>
-            ))}
-          </ul>
-        </ContentPanel>
-      )}
-
       <div className="dashboard__top">
         <div className="dashboard__hero">
           <p className="dashboard__today">
@@ -465,6 +447,27 @@ export const Dashboard = () => {
             </p>
           )}
         </div>
+
+        {isManager && setupIncomplete && (
+          <div className="dashboard__setup-card">
+            <div className="dashboard__section-heading">
+              <h2>Finish setting up</h2>
+              <Link className="button-outline dashboard__resume-action" to="/setup">
+                <i className={`fas ${setupStarted ? 'fa-arrow-right' : 'fa-play'}`} aria-hidden="true" />
+                {setupStarted ? 'Continue setup' : 'Start setup'}
+              </Link>
+            </div>
+            <ul className="dashboard__setup-steps">
+              {setupSteps.map((entry) => (
+                <li key={entry.key} className={entry.done ? 'is-done' : ''}>
+                  <i className={`fas ${entry.done ? 'fa-circle-check' : 'fa-circle'}`} aria-hidden="true" />
+                  {entry.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="dashboard__card-grid">
           {summaryCards.map((card) => (
             <article key={card.key} className={`dashboard__metric dashboard__metric--${card.tone}`}>
