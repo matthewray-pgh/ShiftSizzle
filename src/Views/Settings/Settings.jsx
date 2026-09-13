@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { Button } from '../../Components';
+import { Button, InputField } from '../../Components';
 import { useAppState } from '../../state/AppState';
 import {
   BusinessHoursFields,
@@ -57,6 +57,43 @@ const SettingsSection = ({ title, hint, dirty, wide, ariaLabel, children }) => {
 export const Settings = () => {
   const { state, dispatch } = useAppState();
   const f = useSettingsForm(state);
+  const [newLocationName, setNewLocationName] = useState('');
+  const [copySettings, setCopySettings] = useState(true);
+  const [locationError, setLocationError] = useState('');
+
+  const handleLocationNameChange = (value) => {
+    setNewLocationName(value);
+
+    if (locationError) {
+      setLocationError('');
+    }
+  };
+
+  const handleAddLocation = () => {
+    const name = newLocationName.trim();
+
+    if (!name) {
+      setLocationError('Enter a location name.');
+      return;
+    }
+
+    const currentLocation = state.locations.find((location) => location.id === state.currentLocationId);
+    const payload = copySettings && currentLocation
+      ? {
+          name,
+          shiftTypes: currentLocation.shiftTypes,
+          shiftTimes: currentLocation.shiftTimes,
+          teamRoles: currentLocation.teamRoles,
+          roleCoverage: currentLocation.roleCoverage,
+          weekStartsOn: currentLocation.weekStartsOn,
+          operatingHours: currentLocation.operatingHours,
+        }
+      : { name };
+
+    dispatch({ type: 'ADD_LOCATION', payload });
+    setNewLocationName('');
+    setLocationError('');
+  };
 
   // On phones, paint the app background to match the header so the settings
   // panel floats on it — same treatment as the Dashboard.
@@ -92,6 +129,71 @@ export const Settings = () => {
           ariaLabel="Workspace details settings"
         >
           <WorkspaceDetailsFields f={f} />
+        </SettingsSection>
+
+        <SettingsSection
+          title="Locations"
+          hint="Switch which one you're viewing from Account."
+          ariaLabel="Location settings"
+        >
+          <div className="settings__token-row">
+            {state.locations.map((location) => {
+              const isCurrent = location.id === state.currentLocationId;
+
+              return (
+                <span key={location.id} className={`settings__token ${isCurrent ? 'settings__token--base' : ''}`.trim()}>
+                  {location.name}
+                  {isCurrent && ' (current)'}
+                </span>
+              );
+            })}
+          </div>
+          <div
+            className={`settings__mode-toggle ${copySettings ? '' : 'is-custom'}`.trim()}
+            role="radiogroup"
+            aria-label="New location settings"
+          >
+            <span className="settings__mode-toggle-highlight" aria-hidden="true" />
+            <button
+              type="button"
+              className={`settings__mode-toggle-option ${copySettings ? 'is-active' : ''}`.trim()}
+              role="radio"
+              aria-checked={copySettings}
+              onClick={() => setCopySettings(true)}
+            >
+              Copy settings
+            </button>
+            <button
+              type="button"
+              className={`settings__mode-toggle-option ${copySettings ? '' : 'is-active'}`.trim()}
+              role="radio"
+              aria-checked={!copySettings}
+              onClick={() => setCopySettings(false)}
+            >
+              Custom
+            </button>
+          </div>
+          <div className="settings__inline-form">
+            <div className="settings__field">
+              <InputField
+                label="Add Location"
+                name="newLocationName"
+                value={newLocationName}
+                onChange={handleLocationNameChange}
+                placeholder="Ex. Downtown"
+                aria-invalid={Boolean(locationError)}
+              />
+              <div className={`settings__field-error-collapse ${locationError ? 'is-visible' : ''}`.trim()}>
+                {locationError && <p className="settings__field-error" role="alert">{locationError}</p>}
+              </div>
+            </div>
+            <Button type="button" className="settings__inline-button button-outline" onClick={handleAddLocation}>
+              <span className="settings__action-icon" aria-hidden="true">
+                <i className="fas fa-plus" />
+              </span>
+              Add Location
+            </Button>
+          </div>
         </SettingsSection>
 
         <SettingsSection

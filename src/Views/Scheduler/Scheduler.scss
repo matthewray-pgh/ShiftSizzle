@@ -100,6 +100,41 @@
     }
   }
 
+  &__overflow-danger {
+    color: styles.$danger !important;
+
+    &:hover {
+      background: rgba(239, 68, 68, 0.08) !important;
+    }
+  }
+
+  &__danger-button {
+    background: styles.$danger !important;
+    border-color: styles.$danger !important;
+
+    &:hover {
+      background: #dc2626 !important;
+    }
+  }
+
+  &__location-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.06);
+    color: styles.$text-secondary;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+
+    i {
+      font-size: 0.65rem;
+    }
+  }
+
   &__status-pill {
     display: inline-flex;
     align-items: center;
@@ -161,6 +196,13 @@
   &__controls &__view-toggle {
     flex: 0 0 auto;
     margin-bottom: 0;
+  }
+
+  &__controls-divider {
+    flex: 0 0 auto;
+    width: 1px;
+    height: 28px;
+    background: rgba(15, 23, 42, 0.12);
   }
 
   // ---- copy last week / start fresh: full takeover ----
@@ -1446,17 +1488,59 @@
 @media (max-width: 720px) {
   .scheduler {
     &__bar {
+      gap: 8px;
       padding: 12px 16px 10px;
     }
 
+    // Status row crammed pills + a sentence + a button onto one line, which
+    // either overflowed or (via bar-meta's ellipsis) truncated the sentence
+    // outright — wrap it into three clear, self-explanatory lines instead:
+    // pills, then the plain-language status sentence, then Publish.
+    &__bar-row--status {
+      flex-wrap: wrap;
+    }
+
+    &__bar-meta {
+      flex-basis: 100%;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: unset;
+    }
+
+    &__bar-spacer {
+      display: none;
+    }
+
+    &__bar-row--status .button {
+      flex: 1 1 100%;
+    }
+
+    // Role filter and view mode were squeezed onto one line (view toggle
+    // pinned top-right via order+margin, tabs wrapping awkwardly beneath) —
+    // give each its own full-width row instead so it's clear they're two
+    // separate, unrelated controls rather than one blob.
     &__controls {
       flex-wrap: wrap;
       margin: 4px 16px 14px;
     }
 
-    &__controls &__view-toggle {
-      order: -1;
-      margin-left: auto;
+    &__role-tabs {
+      flex-basis: 100%;
+    }
+
+    &__view-toggle {
+      flex: 1 1 100%;
+      width: 100%;
+      justify-content: center;
+    }
+
+    &__view-toggle-button {
+      flex: 1 1 0;
+      text-align: center;
+    }
+
+    &__controls-divider {
+      display: none;
     }
 
     &__setup,

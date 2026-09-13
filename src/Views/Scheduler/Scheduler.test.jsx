@@ -203,6 +203,68 @@ describe('Scheduler view', () => {
     expect(within(getShiftCard('Manager')).getByText('No one assigned')).toBeInTheDocument();
   });
 
+  it('deletes an unpublished week\'s schedule record entirely, behind a confirm dialog', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'draft',
+        requirements: grid(1),
+        assignments: { 1: emptyAssignments() },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+    fireEvent.click(getDayTab('Monday'));
+
+    const card = getShiftCard('Manager');
+    openAddPanel(card);
+    fireEvent.click(within(card).getByRole('button', { name: /Jen Ray/ }));
+    expect(within(getShiftCard('Manager')).getByText('1/1')).toBeInTheDocument();
+
+    const openDelete = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete draft' }));
+    };
+
+    openDelete();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    openDelete();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete draft' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // The record is gone (not just cleared) — the coverage target still
+    // re-seeds from the Settings template, same as a reset.
+    expect(within(getShiftCard('Manager')).getByText('0/1')).toBeInTheDocument();
+  });
+
+  it('does not offer to delete a published week', async () => {
+    await renderScheduler({
+      settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
+      employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 2, status: 'active', availability: availableEveryDay }],
+      schedules: [{
+        weekLabel: 'May 24 - May 30, 2026',
+        startDate: '2026-05-24',
+        endDate: '2026-05-30',
+        role: 'Manager',
+        status: 'published',
+        requirements: grid(1),
+        assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+      }],
+    });
+
+    selectWeek('2026-05-24');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: 'Delete draft' })).not.toBeInTheDocument();
+  });
+
   it('shows only operating days in the day tab strip', async () => {
     await renderScheduler({
       settings: { shiftTypes: ['Open'], weekStartsOn: 'Sunday', operatingHours: singleDayOperatingHours },
@@ -388,7 +450,7 @@ describe('Scheduler view', () => {
 
     selectWeek('2026-05-24');
 
-    expect(screen.getByText(/0 \/ 3 filled/)).toBeInTheDocument();
+    expect(screen.getByText(/0 of 3 shifts filled — 3 open/)).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^All roles/ })).toHaveTextContent('3');
   });
 

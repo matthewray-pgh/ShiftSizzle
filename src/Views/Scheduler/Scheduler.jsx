@@ -518,6 +518,7 @@ export const Scheduler = () => {
 
   const [activeRoleFilter, setActiveRoleFilter] = useState('All');
   const [pendingReset, setPendingReset] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
   const [viewMode, setViewMode] = useState('builder');
   const [selectedDay, setSelectedDay] = useState(null);
   const [addingFor, setAddingFor] = useState(null);
@@ -657,6 +658,11 @@ export const Scheduler = () => {
   const handleResetWeek = () => {
     dispatch({ type: 'RESET_WEEK_DRAFT' });
     setPendingReset(false);
+  };
+
+  const handleDeleteWeek = () => {
+    dispatch({ type: 'DELETE_SCHEDULE', payload: { startDate: schedule.startDate } });
+    setPendingDelete(false);
   };
 
   const handleSelectRole = (role) => {
@@ -930,8 +936,8 @@ export const Scheduler = () => {
 
   const statusLabel = schedule.status === 'published' ? 'Published' : 'Draft';
   const filledSummary = demandSet
-    ? `${totals.required - totals.open} / ${totals.required} filled`
-    : 'No coverage targets';
+    ? `${totals.required - totals.open} of ${totals.required} shifts filled${totals.open > 0 ? ` — ${totals.open} open` : ''}`
+    : 'No coverage targets set';
 
   return (
     <div className="scheduler">
@@ -980,12 +986,28 @@ export const Scheduler = () => {
                 <button type="button" role="menuitem" onClick={() => { setPendingReset(true); setOverflowOpen(false); }}>
                   Reset week
                 </button>
+                {schedule.status !== 'published' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="scheduler__overflow-danger"
+                    onClick={() => { setPendingDelete(true); setOverflowOpen(false); }}
+                  >
+                    Delete draft
+                  </button>
+                )}
               </div>
             )}
           </div>
         </div>
 
         <div className="scheduler__bar-row scheduler__bar-row--status">
+          {state.locations.length > 1 && (
+            <span className="scheduler__location-pill">
+              <i className="fas fa-location-dot" aria-hidden="true" />
+              {settings.locationName}
+            </span>
+          )}
           <span className={`scheduler__status-pill is-${schedule.status}`}>
             <span className="scheduler__status-dot" aria-hidden="true" />
             {statusLabel.toUpperCase()}
@@ -1054,6 +1076,8 @@ export const Scheduler = () => {
                 />
               ))}
             </div>
+
+            <span className="scheduler__controls-divider" aria-hidden="true" />
 
             <div className="scheduler__view-toggle" role="tablist" aria-label="Scheduler view">
               <button
@@ -1163,6 +1187,26 @@ export const Scheduler = () => {
               </button>
               <button type="button" className="button" onClick={handleResetWeek}>
                 Reset week
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="scheduler__modal-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-week-modal-title">
+          <div className="scheduler__modal">
+            <h2 id="delete-week-modal-title">Delete this draft?</h2>
+            <p>
+              Permanently removes {schedule.weekLabel || 'this week'}'s schedule — every role's assignments and
+              notes. This can't be undone.
+            </p>
+            <div className="scheduler__modal-actions">
+              <button type="button" className="button-outline" onClick={() => setPendingDelete(false)}>
+                Cancel
+              </button>
+              <button type="button" className="button scheduler__danger-button" onClick={handleDeleteWeek}>
+                Delete draft
               </button>
             </div>
           </div>

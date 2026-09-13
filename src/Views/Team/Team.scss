@@ -9,6 +9,13 @@
     gap: 0.5em;
   }
 
+  // The card's Edit button floats in its top-right corner (see
+  // &__edit-link--card below), clear of normal flow — reserve space here so
+  // a long name/badge combo doesn't run underneath it.
+  &__member-panel &__member-header {
+    padding-right: 46px;
+  }
+
   &__action-icon {
     display: inline-flex;
     align-items: center;
@@ -435,7 +442,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 14px;
-    margin: 8px 20px 0;
+    margin: 8px 0;
     // No height constraint anywhere above this in the layout chain — the
     // page scrolls naturally instead. overflow-y:auto here doesn't add
     // real scrolling; it only clips popovers (e.g. the Add Employee menu)
@@ -457,6 +464,7 @@
   }
 
   &__member-panel {
+    position: relative;
     display: flex;
     align-items: flex-start;
     width: 100%;
@@ -464,7 +472,10 @@
     max-width: 440px;
     justify-self: start;
     margin: 0;
-    padding: 1rem 1.05rem;
+    // Matches .content-panel's own default padding (see ContentPanel.scss)
+    // so this card's inner edges line up with the control panel/table card
+    // above it, which don't override it.
+    padding: 18px 22px;
     box-sizing: border-box;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 18px;
@@ -499,6 +510,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     width: 48px;
     height: 48px;
     border-radius: 50%;
@@ -555,79 +567,13 @@
     color: #94a3b8;
   }
 
-  &__member-shifts {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: fit-content;
-    padding: 0.3rem 0.75rem;
-    border: 1px solid transparent;
-    border-radius: 999px;
-    background: transparent;
-    color: styles.$text-secondary;
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-
-  &__member-meta-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid rgba(15, 23, 42, 0.06);
-  }
-
-  &__member-more {
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid rgba(15, 23, 42, 0.06);
-  }
-
-  &__member-more-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: styles.$text-secondary;
-    font: inherit;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-
-    &:hover {
-      color: #334155;
-    }
-
-    &::before {
-      content: '\25B8';
-      display: inline-block;
-      transition: transform 200ms ease;
-    }
-  }
-
-  &__member-more.is-expanded &__member-more-toggle::before {
-    transform: rotate(90deg);
-  }
-
-  &__member-more-content {
-    display: grid;
-    grid-template-rows: 0fr;
-    transition: grid-template-rows 220ms ease;
-  }
-
-  &__member-more-inner {
+  &__member-contact-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0.4rem 1rem;
-    min-height: 0;
-    overflow: hidden;
-    margin-top: 0.4rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
   }
 
   &__member-contact,
@@ -642,10 +588,6 @@
       width: 1em;
       text-align: center;
     }
-  }
-
-  &__member-more.is-expanded &__member-more-content {
-    grid-template-rows: 1fr;
   }
 
   &__archive-btn,
@@ -870,8 +812,8 @@
     text-transform: uppercase;
 
     &.is-available {
-      background: rgba(15, 23, 42, 0.08);
-      color: #334155;
+      background: rgba(34, 197, 94, 0.16);
+      color: #15803d;
     }
   }
 
@@ -899,7 +841,12 @@
 
   &__edit-link {
     &--card {
-      margin-left: auto;
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      min-height: 36px;
+      padding: 8px 12px;
+      font-size: 0.86rem;
     }
   }
 
@@ -1003,6 +950,19 @@
       border-color: rgba(37, 99, 235, 0.18);
       color: #14213d;
     }
+  }
+
+  // Archive/Reactivate live here (not the roster card/table) — sized to
+  // match Submit/Cancel and pushed to the far side on desktop so the
+  // destructive action reads as separate from the save/cancel pair. On
+  // mobile the modal's column stack already gives it a full-width row.
+  &__modal-tertiary-action {
+    margin-left: auto;
+    width: fit-content;
+    min-height: 44px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 0.9rem;
   }
 
   &__modal--closing {
@@ -1591,13 +1551,25 @@
 
     &__member-panel {
       max-width: none;
-      padding: 0.85rem 0.95rem;
+      // Matches .content-panel's own mobile default (see ContentPanel.scss)
+      padding: 16px;
     }
 
     &__member-avatar {
       width: 38px;
       height: 38px;
       margin-right: 0.75em;
+    }
+
+    // The wrapper above shrinks, but the initials span itself carries its
+    // own explicit 48x48 size — without resizing it too, flex-shrink only
+    // squeezes its width (height stays fixed), rendering an oval instead
+    // of a smaller circle. Scoped to this card (not plain &__avatar-initials)
+    // so it doesn't also shrink the modal's --lg identity avatar.
+    &__member-avatar &__avatar-initials {
+      width: 38px;
+      height: 38px;
+      font-size: 0.85rem;
     }
 
     &__avatar-icon {
@@ -1613,8 +1585,21 @@
       font-size: 0.92rem;
     }
 
-    &__member-meta-row {
-      gap: 0.5rem;
+    // Keep it compact and icon-only on the smaller card, same treatment as
+    // the app's other icon-only mobile controls.
+    &__edit-link--card {
+      top: 12px;
+      right: 14px;
+      padding: 7px;
+      min-height: 34px;
+      width: 34px;
+    }
+
+    // The button's aria-label already carries "Edit {name}" as the
+    // accessible name, so hiding this text outright (rather than just
+    // visually) doesn't lose anything for screen readers.
+    &__edit-link--card &__edit-link-text {
+      display: none;
     }
 
     &__filters-card {

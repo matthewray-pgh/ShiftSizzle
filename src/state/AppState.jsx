@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { useAuth } from "./AuthState";
 import { buildCallOutId, buildScheduleRecordId } from "./scheduleRecordId";
 import {
+  deleteScheduleRecordRow,
   fetchOrgBundle,
   subscribeToOrgChanges,
   updateOrganizationSettings,
@@ -2082,6 +2083,23 @@ const appStateReducer = (state, action) => {
         },
       };
     }
+    // Removes a week's schedule records outright (as opposed to
+    // RESET_WEEK_DRAFT, which keeps the row and empties it) — only ever
+    // offered in the UI for a week that isn't published. A week inside the
+    // default rolling window (last/this/next/+2/+3) just falls back to
+    // "Not started"; one outside it disappears from the week picker.
+    case "DELETE_SCHEDULE": {
+      const { startDate } = action.payload;
+      const schedules = state.schedules.filter(
+        (entry) => !(entry.startDate === startDate && entry.locationId === state.currentLocationId)
+      );
+
+      if (startDate !== state.schedule.startDate) {
+        return { ...state, schedules };
+      }
+
+      return applyWeekContext({ ...state, schedules }, startDate);
+    }
     // Copy-last-week (§7): seed this week's assignments from the most recent
     // saved week, then validate every copied assignment against CURRENT
     // availability / status / role. Coverage targets always come from the
@@ -2547,6 +2565,14 @@ export const AppStateProvider = ({ children }) => {
 
       if (!previousRecord || JSON.stringify(previousRecord) !== JSON.stringify(record)) {
         pending.push(upsertScheduleRecordRow(orgId, record));
+      }
+    });
+
+    previous.schedules.forEach((previousRecord) => {
+      const stillExists = schedules.some((entry) => entry.id === previousRecord.id);
+
+      if (!stillExists) {
+        pending.push(deleteScheduleRecordRow(orgId, previousRecord));
       }
     });
 

@@ -439,6 +439,9 @@ export const Dashboard = () => {
             {schedule.weekLabel && (
               <span className="dashboard__today-week">{schedule.weekLabel}</span>
             )}
+            {state.locations.length > 1 && (
+              <span className="dashboard__today-week">{settings.locationName}</span>
+            )}
           </p>
           <h1>Hello, {me?.name ?? user?.email}</h1>
           {!isManager && (
