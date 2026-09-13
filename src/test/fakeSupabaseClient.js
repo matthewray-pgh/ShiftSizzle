@@ -49,6 +49,11 @@ class FakeQueryBuilder {
     return this;
   }
 
+  delete() {
+    this.mode = 'delete';
+    return this;
+  }
+
   matches(row) {
     return this.filters.every(([column, value]) => row[column] === value);
   }
@@ -63,6 +68,13 @@ class FakeQueryBuilder {
         }
       });
 
+      return { data: null, error: null };
+    }
+
+    if (this.mode === 'delete') {
+      const remaining = rows.filter((row) => !this.matches(row));
+      rows.length = 0;
+      rows.push(...remaining);
       return { data: null, error: null };
     }
 

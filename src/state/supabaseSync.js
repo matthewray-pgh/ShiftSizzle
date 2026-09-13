@@ -294,6 +294,19 @@ export const upsertScheduleRecordRow = (orgId, record) =>
       .from('schedule_records')
       .upsert(mapRecordToScheduleRow(orgId, record), { onConflict: 'location_id,start_date,role' }));
 
+// Matches the same natural key as the upsert's onConflict target — `record.id`
+// is a client-side synthetic id (startDate + role), not the DB row's own
+// primary key, so deleting by it directly isn't an option.
+export const deleteScheduleRecordRow = (orgId, record) =>
+  runWrite('schedule record delete', () =>
+    supabase
+      .from('schedule_records')
+      .delete()
+      .eq('org_id', orgId)
+      .eq('location_id', record.locationId)
+      .eq('start_date', record.startDate)
+      .eq('role', record.role));
+
 export const upsertLocationRow = (orgId, location) =>
   runWrite('location', () =>
     supabase.from('locations').upsert(mapLocationToLocationRow(orgId, location)));

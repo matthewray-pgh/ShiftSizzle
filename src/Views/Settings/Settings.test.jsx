@@ -114,4 +114,18 @@ describe('Settings view', () => {
     expect(screen.getByText('No changes to save')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
+
+  it('requires a name before adding a location, and clears the error once fixed', async () => {
+    await renderView(Settings);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Location' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a location name.');
+
+    fireEvent.change(screen.getByLabelText('Add Location'), { target: { value: 'Downtown' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Location' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Downtown')).toBeInTheDocument();
+  });
 });

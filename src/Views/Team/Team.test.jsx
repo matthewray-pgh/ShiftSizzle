@@ -1,8 +1,16 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DAYS } from '../../state/AppState';
 import { renderView } from '../../test/renderView';
 import { Team } from './Team';
+
+// The roster card's availability strip only shows days the business is
+// open — renderView's default org has every day closed, so tests that
+// check the strip's content need real hours seeded.
+const allDaysOpen = Object.fromEntries(
+  DAYS.map((day) => [day, { isOpen: true, openTime: '09:00', closeTime: '21:00' }])
+);
 
 vi.mock('../../lib/supabaseClient', async () => {
   const { createFakeSupabaseClient } = await import('../../test/fakeSupabaseClient');
@@ -30,19 +38,25 @@ describe('Team view', () => {
     expect(screen.getByPlaceholderText('Search employees')).toBeInTheDocument();
   });
 
-  it('can archive and reactivate a team member', async () => {
+  it('can archive and reactivate a team member from the edit modal', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     await renderView(Team);
 
-    fireEvent.click(screen.getAllByText('Archive')[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    // A confirmed archive closes the modal.
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
 
-    expect(screen.getByText('Reactivate')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reactivate' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Reactivate'));
+    fireEvent.click(screen.getByRole('button', { name: 'Reactivate' }));
 
-    expect(screen.queryByText('Reactivate')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reactivate' })).not.toBeInTheDocument();
 
     confirmSpy.mockRestore();
   });
@@ -52,10 +66,12 @@ describe('Team view', () => {
 
     await renderView(Team);
 
-    fireEvent.click(screen.getAllByText('Archive')[0]);
-    fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
-    expect(screen.queryByText('Reactivate')).not.toBeInTheDocument();
+    // Cancelled — modal stays open, employee still active.
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reactivate' })).not.toBeInTheDocument();
 
     confirmSpy.mockRestore();
   });
@@ -77,20 +93,11 @@ describe('Team view', () => {
     expect(screen.getByRole('button', { name: /All 7/ })).toBeInTheDocument();
   });
 
-  it('shows shifts per week in both card and list roster views', async () => {
+  it('shows shifts per week in the list roster view', async () => {
     await renderView(Team);
 
-    // List is the default roster view — switch to Card first to check its
-    // rendering too.
-    fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
-
-    const jenCard = screen.getByText('Jen Ray').closest('.team__member-panel');
-
-    expect(jenCard).not.toBeNull();
-    expect(within(jenCard).getByText('5 shifts/week')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'List view' }));
-
+    // List is the default roster view — shifts/week isn't shown on the
+    // roster card, only in the list/table view.
     const jenRow = screen.getByText('Jen Ray').closest('tr');
 
     expect(screen.getByText('Shifts / Week')).toBeInTheDocument();
@@ -99,7 +106,7 @@ describe('Team view', () => {
   });
 
   it('persists day-specific availability updates when editing a team member', async () => {
-    await renderView(Team);
+    await renderView(Team, { settings: { operatingHours: allDaysOpen } });
 
     // List is the default roster view — the per-employee "Edit {name}"
     // accessible name (and the .team__member-panel this test reads from
@@ -137,7 +144,7 @@ describe('Team view', () => {
   });
 
   it('applies availability quick actions from the availability tab', async () => {
-    await renderView(Team);
+    await renderView(Team, { settings: { operatingHours: allDaysOpen } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
@@ -154,7 +161,7 @@ describe('Team view', () => {
   });
 
   it('selects every shift in the availability tab with the select all quick action', async () => {
-    await renderView(Team);
+    await renderView(Team, { settings: { operatingHours: allDaysOpen } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit Jen Ray' }));
@@ -258,7 +265,7 @@ describe('Team view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Card view' }));
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Archive').length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText(/^Edit /).length).toBeGreaterThan(0);
   });
 
   it('uses card view only on mobile and hides the toggle control', async () => {

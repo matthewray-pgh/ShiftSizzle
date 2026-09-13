@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { Button, ContentPanel, InputField, StatusBadge } from '../../Components';
-import { DAYS, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
+import { DAYS, getOpenDays, getShiftTypes, getTeamRoles, useAppState } from '../../state/AppState';
 import { useAuth } from '../../state/AuthState';
 import { supabase } from '../../lib/supabaseClient';
 import {
@@ -96,7 +96,7 @@ const validateForm = (form) => ({
   email: validateField('email', form.email),
 });
 
-const getAvailabilityDayFlags = (availability = {}) => DAYS.map((day) => ({
+const getAvailabilityDayFlags = (availability = {}, days = DAYS) => days.map((day) => ({
   day,
   short: day.slice(0, 2),
   shifts: availability[day] ?? [],
@@ -154,6 +154,7 @@ export const Team = () => {
   const canManageTeam = membership?.accountRole === 'owner' || membership?.accountRole === 'manager';
   const shiftTypes = getShiftTypes(settings);
   const teamRoles = getTeamRoles(settings, employees);
+  const openDays = getOpenDays(settings);
   const roleFilterOptions = ['All roles', ...teamRoles];
   const hasEmployees = employees.length > 0;
 
@@ -284,7 +285,6 @@ export const Team = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRosterActionsMenu, setShowRosterActionsMenu] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [expandedMemberIds, setExpandedMemberIds] = useState(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All roles');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -319,20 +319,6 @@ export const Team = () => {
 
     setSlideDir(mode === VIEW_MODES.LIST ? 'from-right' : 'from-left');
     setViewMode(mode);
-  };
-
-  const toggleMemberDetails = (employeeId) => {
-    setExpandedMemberIds((current) => {
-      const next = new Set(current);
-
-      if (next.has(employeeId)) {
-        next.delete(employeeId);
-      } else {
-        next.add(employeeId);
-      }
-
-      return next;
-    });
   };
 
   useEffect(() => {
@@ -597,12 +583,15 @@ export const Team = () => {
     closeImportModal();
   };
 
+  // Lives in the edit modal's action row (not the roster card/table) — a
+  // status change like this deserves the same confirm-and-close treatment as
+  // Cancel, not a small dangling link on every row.
   const renderEmployeeActions = (employee) => {
     if (employee.status !== 'archived') {
       return (
         <button
           type="button"
-          className="team__archive-btn"
+          className="team__archive-btn team__modal-tertiary-action"
           onClick={() => {
             const shouldArchive = window.confirm(`Archive ${employee.name}? You can reactivate them later.`);
 
@@ -611,6 +600,7 @@ export const Team = () => {
             }
 
             dispatch({ type: 'ARCHIVE_EMPLOYEE', payload: employee.id });
+            closeModal();
           }}
         >
           Archive
@@ -621,8 +611,11 @@ export const Team = () => {
     return (
       <button
         type="button"
-        className="team__reactivate-btn"
-        onClick={() => dispatch({ type: 'REACTIVATE_EMPLOYEE', payload: employee.id })}
+        className="team__reactivate-btn team__modal-tertiary-action"
+        onClick={() => {
+          dispatch({ type: 'REACTIVATE_EMPLOYEE', payload: employee.id });
+          closeModal();
+        }}
       >
         Reactivate
       </button>
@@ -638,7 +631,7 @@ export const Team = () => {
   );
 
   const renderAvailabilityStrip = (availability, idPrefix) => {
-    const days = getAvailabilityDayFlags(availability);
+    const days = getAvailabilityDayFlags(availability, openDays);
     const availableDays = days.filter((d) => d.shifts.length > 0);
     const summaryLabel = availableDays.length
       ? `Available ${availableDays.map((d) => d.day).join(', ')}`
@@ -923,7 +916,7 @@ export const Team = () => {
                       }}
                     >
                       <i className="fas fa-pen" aria-hidden="true" />
-                      Edit
+                      <span className="team__edit-link-text">Edit</span>
                     </button>
                   )}
                 </div>
@@ -932,36 +925,19 @@ export const Team = () => {
                   {emp.title && emp.roles.length > 0 && <span className="team__member-role-sep" aria-hidden="true">&middot;</span>}
                   <span className="team__member-role">{emp.roles.join(', ')}</span>
                 </div>
-                <div className="team__member-meta-row">
-                  <div className="team__member-shifts">{formatShiftsPerWeek(emp.shiftsPerWeek)}</div>
+                <div className="team__member-contact-row">
+                  <div className="team__member-contact">
+                    <i className="fas fa-phone" aria-hidden="true" />
+                    {emp.contact || 'N/A'}
+                  </div>
+                  <div className="team__member-email">
+                    <i className="fas fa-envelope" aria-hidden="true" />
+                    {emp.email || 'N/A'}
+                  </div>
                 </div>
                 <div className="team__member-availability-row">
                   {renderAvailabilityStrip(emp.availability, `card-${emp.id}`)}
                 </div>
-                <div className={`team__member-more ${expandedMemberIds.has(emp.id) ? 'is-expanded' : ''}`.trim()}>
-                  <button
-                    type="button"
-                    className="team__member-more-toggle"
-                    onClick={() => toggleMemberDetails(emp.id)}
-                    aria-expanded={expandedMemberIds.has(emp.id)}
-                    aria-controls={`team-member-more-${emp.id}`}
-                  >
-                    More details
-                  </button>
-                  <div className="team__member-more-content" id={`team-member-more-${emp.id}`}>
-                    <div className="team__member-more-inner">
-                      <div className="team__member-contact">
-                        <i className="fas fa-phone" aria-hidden="true" />
-                        {emp.contact || 'N/A'}
-                      </div>
-                      <div className="team__member-email">
-                        <i className="fas fa-envelope" aria-hidden="true" />
-                        {emp.email || 'N/A'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                {renderEmployeeActions(emp)}
               </div>
             </div>
           </ContentPanel>
@@ -1019,7 +995,6 @@ export const Team = () => {
                             <i className="fas fa-pen" aria-hidden="true" />
                             Edit
                           </button>
-                          {renderEmployeeActions(employee)}
                         </div>
                       )}
                     </td>
@@ -1232,6 +1207,7 @@ export const Team = () => {
                   </span>
                   Cancel
                 </Button>
+                {editingEmployee && renderEmployeeActions(editingEmployee)}
               </div>
             </form>
           </div>

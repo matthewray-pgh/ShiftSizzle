@@ -240,6 +240,22 @@ export const Account = () => {
           </div>
         </form>
 
+        {state.locations.length > 1 && (
+          <div className="account__locations">
+            <label className="account__field-label" htmlFor="account-location">Viewing location</label>
+            <select
+              id="account-location"
+              className="account__location-select"
+              value={state.currentLocationId}
+              onChange={(event) => dispatch({ type: 'SET_CURRENT_LOCATION', payload: { locationId: event.target.value } })}
+            >
+              {state.locations.map((location) => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="account__session">
           <button type="button" className="account__signout" onClick={signOut}>
             <i className="fas fa-arrow-right-from-bracket" aria-hidden="true" />
