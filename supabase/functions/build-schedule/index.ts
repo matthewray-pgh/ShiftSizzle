@@ -7,22 +7,17 @@
 //
 // Service_role key: membership check without the caller's RLS, as elsewhere.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import Anthropic from 'https://esm.sh/@anthropic-ai/sdk';
+import { normalizeDraft, normalizeScheduleRequest } from '../_shared/aiOutput.ts';
+import { generateJson, logAi } from '../_shared/anthropic.ts';
+import { corsHeaders, errorResponse, jsonResponse, readJsonBody } from '../_shared/http.ts';
 
+const FN = 'build-schedule';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-const jsonResponse = (body, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+const MAX_BODY_BYTES = 512 * 1024;
+// Edge Functions must answer within 150s; leave room for auth + parsing.
+const TIMEOUT_MS = 120_000;
 
 const SCHEDULE_SCHEMA = {
   type: 'object',
@@ -58,19 +53,19 @@ Optimize, in order:
 4. Keep each person's days consistent week to week when last_week is provided.
 If you cannot fully cover a shift, leave it short and explain briefly in notes. Do not invent employee ids, days, or shift labels.`;
 
-Deno.serve(async (req) => {
+const handle = async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    return errorResponse('Method not allowed', 405, 'method_not_allowed');
   }
 
   const authHeader = req.headers.get('Authorization');
 
   if (!authHeader) {
-    return jsonResponse({ error: 'Missing authorization header' }, 401);
+    return errorResponse('Missing authorization header', 401, 'unauthenticated');
   }
 
   const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -78,68 +73,82 @@ Deno.serve(async (req) => {
   const { data: callerData, error: callerError } = await adminClient.auth.getUser(token);
 
   if (callerError || !callerData.user) {
-    return jsonResponse({ error: 'Invalid session' }, 401);
+    return errorResponse('Invalid session', 401, 'unauthenticated');
   }
 
-  let body;
+  const request = await readJsonBody(req, MAX_BODY_BYTES);
 
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid request body' }, 400);
+  if (!request.ok) {
+    return errorResponse(request.error, request.status, request.code);
   }
 
-  const { role, days, shift_types, employees, requirements, existing_assignments, last_week, week_label } = body ?? {};
+  const normalized = normalizeScheduleRequest(request.body);
 
-  if (!role || !Array.isArray(days) || !Array.isArray(shift_types) || !Array.isArray(employees) || !requirements) {
-    return jsonResponse({ error: 'role, days, shift_types, employees and requirements are required' }, 400);
+  if (!normalized.ok) {
+    return errorResponse(normalized.error, 400, 'invalid_request');
   }
 
-  if (employees.length === 0) {
-    return jsonResponse({ ok: true, draft: { assignments: [], notes: 'No eligible employees for this role.' } });
-  }
+  const { payload } = normalized;
 
   const { data: callerMembership, error: membershipError } = await adminClient
     .from('memberships')
-    .select('account_role')
+    .select('org_id, account_role')
     .eq('user_id', callerData.user.id)
     .eq('status', 'active')
     .maybeSingle();
 
-  if (membershipError || !callerMembership || !['owner', 'manager'].includes(callerMembership.account_role)) {
-    return jsonResponse({ error: 'Not authorized to build schedules' }, 403);
+  if (membershipError) {
+    logAi('error', FN, { code: 'membership_lookup_failed', status: 500, detail: membershipError.message });
+
+    return errorResponse('Could not verify your workspace access. Try again.', 500, 'internal_error');
   }
 
-  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  if (!callerMembership || !['owner', 'manager'].includes(callerMembership.account_role)) {
+    return errorResponse('Not authorized to build schedules', 403, 'forbidden');
+  }
 
-  const payload = {
-    role,
-    week_label: week_label ?? null,
-    days,
-    shift_types,
-    employees,
-    requirements,
-    existing_assignments: existing_assignments ?? [],
-    last_week: last_week ?? null,
-  };
+  const orgId = callerMembership.org_id;
 
+  if (payload.employees.length === 0) {
+    return jsonResponse({ ok: true, draft: { assignments: [], notes: 'No eligible employees for this role.' } });
+  }
+
+  const result = await generateJson({
+    fn: FN,
+    orgId,
+    system: SYSTEM_PROMPT,
+    content: JSON.stringify(payload),
+    schema: SCHEDULE_SCHEMA,
+    effort: 'medium',
+    maxTokens: 32000,
+    timeoutMs: TIMEOUT_MS,
+  });
+
+  if (!result.ok) {
+    return errorResponse(result.error, result.status, result.code);
+  }
+
+  const draft = normalizeDraft(result.value, payload);
+
+  if (!draft) {
+    logAi('error', FN, { org_id: orgId, code: 'ai_malformed_output', status: 502 });
+
+    return errorResponse('The AI service returned a malformed response.', 502, 'ai_malformed_output');
+  }
+
+  if (draft.dropped > 0) {
+    logAi('error', FN, { org_id: orgId, code: 'ai_invalid_picks_dropped', dropped: draft.dropped, kept: draft.assignments.length });
+  }
+
+  return jsonResponse({ ok: true, draft: { assignments: draft.assignments, notes: draft.notes } });
+};
+
+Deno.serve(async (req) => {
   try {
-    const response = await anthropic.messages.parse({
-      model: 'claude-sonnet-5',
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      output_config: {
-        format: { type: 'json_schema', schema: SCHEDULE_SCHEMA },
-      },
-      messages: [{ role: 'user', content: JSON.stringify(payload) }],
-    });
-
-    if (response.stop_reason === 'refusal') {
-      return jsonResponse({ error: 'The schedule could not be generated.' }, 422);
-    }
-
-    return jsonResponse({ ok: true, draft: response.parsed_output });
+    return await handle(req);
   } catch (error) {
-    return jsonResponse({ error: error.message ?? 'Schedule generation failed' }, 500);
+    logAi('error', FN, { code: 'internal_error', status: 500, detail: `${error?.name ?? 'Error'}: ${error?.message ?? ''}`.slice(0, 500) });
+
+    return errorResponse('Something went wrong generating that.', 500, 'internal_error');
   }
 });
