@@ -13,6 +13,7 @@ import {
   getCurrentWeekStartDate,
   getEligibleCandidates,
   getLiveCopyConflicts,
+  getLocationSchedules,
   getOpenDays,
   getPriorScheduledWeekStart,
   getRolesWithSignal,
@@ -24,7 +25,7 @@ import {
   normalizeOperatingHours,
   useAppState,
 } from '../../state/AppState';
-import { AI_UNAVAILABLE, requestAiSchedule } from '../../state/aiAssist';
+import { AI_UNAVAILABLE, mapWithConcurrency, requestAiSchedule } from '../../state/aiAssist';
 import { supabase } from '../../lib/supabaseClient';
 
 const formatTimestamp = (value) => new Date(value).toLocaleString([], {
@@ -33,6 +34,9 @@ const formatTimestamp = (value) => new Date(value).toLocaleString([], {
   hour: 'numeric',
   minute: '2-digit',
 });
+
+// How many roles' AI drafts are requested at once.
+const AI_DRAFT_CONCURRENCY = 3;
 
 const WEEK_STATUS_LABEL = { published: 'Published', draft: 'Draft', none: 'Not started' };
 
@@ -173,7 +177,7 @@ const DayBuilder = ({
   canAutoFill,
   onAiDraft,
   aiBuilding,
-  aiNote,
+  aiNotes,
   conflictFor,
   onReplaceConflict,
   onKeepConflict,
@@ -224,7 +228,11 @@ const DayBuilder = ({
           </button>
         </div>
       </div>
-      {aiNote ? <p className="scheduler__day-note" role="status">{aiNote}</p> : null}
+      {aiNotes.length > 0 ? (
+        <div role="status">
+          {aiNotes.map((note) => <p key={note} className="scheduler__day-note">{note}</p>)}
+        </div>
+      ) : null}
 
       {cards.length === 0 ? (
         <p className="scheduler__day-empty">
@@ -531,7 +539,8 @@ export const Scheduler = () => {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [aiBuilding, setAiBuilding] = useState(false);
-  const [aiNote, setAiNote] = useState('');
+  const [aiNotes, setAiNotes] = useState([]);
+  const [aiDraftResults, setAiDraftResults] = useState(null);
   const undoTimerRef = useRef(null);
 
   useEffect(() => () => window.clearTimeout(undoTimerRef.current), []);
@@ -769,6 +778,9 @@ export const Scheduler = () => {
   // eligible roster with availability + caps, this week's coverage targets,
   // and every shift already assigned (any role) so the model respects the
   // weekly cap and same-day double-booking.
+  const locationSchedules = getLocationSchedules(state);
+  const aiPriorWeekStart = getPriorScheduledWeekStart(locationSchedules, schedule.startDate);
+
   const buildAiRequestForRole = (role) => {
     const roleEmployees = employees.filter(
       (employee) => employee.status !== 'archived' && (employee.roles ?? []).includes(role),
@@ -792,6 +804,26 @@ export const Scheduler = () => {
       });
     });
 
+    // Last scheduled week's picks for this role, so the model can keep
+    // people on the days they usually work.
+    const roleEmployeeIds = new Set(roleEmployees.map((employee) => employee.id));
+    const lastWeekRecord = aiPriorWeekStart
+      ? locationSchedules.find((entry) => entry.startDate === aiPriorWeekStart && entry.role === role)
+      : null;
+    const lastWeek = [];
+
+    Object.entries(lastWeekRecord?.assignments ?? {}).forEach(([employeeId, byDay]) => {
+      if (!roleEmployeeIds.has(employeeId)) {
+        return;
+      }
+
+      openDays.forEach((day) => {
+        (byDay?.[day] ?? []).forEach((shift) => {
+          lastWeek.push({ employee_id: employeeId, day, shift });
+        });
+      });
+    });
+
     return {
       role,
       week_label: schedule.weekLabel,
@@ -805,42 +837,72 @@ export const Scheduler = () => {
       })),
       requirements,
       existing_assignments: existing,
+      ...(lastWeekRecord ? { last_week: lastWeek } : {}),
     };
   };
 
+  const roleNeedsStaff = (role) =>
+    openDays.some((day) => shiftTypes.some((shift) => (schedule.roleRequirements[role]?.[day]?.[shift] ?? 0) > 0));
+
   const handleAiDraft = async () => {
     setAiBuilding(true);
-    setAiNote('');
+    setAiNotes([]);
 
-    let fellBack = false;
-    let lastError = '';
+    // Roles draft side by side: the reducer re-checks caps and double-booking
+    // as each role's picks are applied, so a clash only leaves a gap.
+    const roles = rolesToShow.filter(roleNeedsStaff);
+    const results = await mapWithConcurrency(roles, AI_DRAFT_CONCURRENCY, async (role) => ({
+      role,
+      ...(await requestAiSchedule(supabase, buildAiRequestForRole(role))),
+    }));
 
-    for (const role of rolesToShow) {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await requestAiSchedule(supabase, buildAiRequestForRole(role));
-
-      if (result.error === AI_UNAVAILABLE) {
-        fellBack = true;
-        break;
-      }
-
-      if (result.error) {
-        lastError = result.error;
-        continue;
-      }
-
-      dispatch({ type: 'APPLY_ROLE_ASSIGNMENTS', payload: { role, picks: result.assignments } });
-    }
-
-    if (fellBack) {
+    if (results.some((result) => result.error === AI_UNAVAILABLE)) {
       handleAutoFillVisible();
-      setAiNote('AI scheduling isn’t set up yet — used the built-in auto-fill.');
-    } else if (lastError) {
-      setAiNote(lastError);
+      setAiNotes(['AI scheduling isn’t set up yet — used the built-in auto-fill.']);
+      setAiBuilding(false);
+      return;
     }
 
+    results.forEach((result) => {
+      if (!result.error) {
+        dispatch({ type: 'APPLY_ROLE_ASSIGNMENTS', payload: { role: result.role, picks: result.assignments } });
+      }
+    });
+
+    // The notes are written by the effect below, once the applied picks are
+    // in state and can be counted.
+    setAiDraftResults(results);
     setAiBuilding(false);
   };
+
+  useEffect(() => {
+    if (!aiDraftResults) {
+      return;
+    }
+
+    const labelled = aiDraftResults.length > 1;
+    const notes = aiDraftResults.map((result) => {
+      const prefix = labelled ? `${result.role}: ` : '';
+
+      if (result.error) {
+        return `${prefix}${result.error}`;
+      }
+
+      const placed = Object.values(schedule.assignments[result.role] ?? {}).reduce(
+        (total, byDay) => total + Object.values(byDay ?? {}).reduce((count, shifts) => count + (shifts ?? []).length, 0),
+        0,
+      );
+
+      if (placed === 0) {
+        return `${prefix}The AI draft didn’t place anyone. ${result.notes || 'Check availability and weekly shift limits, or try Auto-fill.'}`;
+      }
+
+      return result.notes ? `${prefix}${result.notes}` : '';
+    });
+
+    setAiNotes([...new Set(notes.filter(Boolean))]);
+    setAiDraftResults(null);
+  }, [aiDraftResults, schedule.assignments]);
 
   // ---- Copy last week (§7) ----
   const priorWeekStart = getPriorScheduledWeekStart(state.schedules, schedule.startDate);
@@ -1122,7 +1184,7 @@ export const Scheduler = () => {
               canAutoFill={demandSet && employees.length > 0}
               onAiDraft={handleAiDraft}
               aiBuilding={aiBuilding}
-              aiNote={aiNote}
+              aiNotes={aiNotes}
               conflictFor={conflictFor}
               onReplaceConflict={handleReplaceConflict}
               onKeepConflict={handleKeepConflict}

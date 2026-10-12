@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DAYS } from './AppState';
-import { AI_UNAVAILABLE, aiSetupToSettingsPayload, requestAiSchedule, requestAiSetup, requestTunedCoverage } from './aiAssist';
+import { AI_UNAVAILABLE, aiSetupToSettingsPayload, mapWithConcurrency, requestAiSchedule, requestAiSetup, requestTunedCoverage } from './aiAssist';
 
 const SAMPLE_SETUP = {
   week_starts_on: 'Monday',
@@ -65,6 +65,18 @@ describe('aiSetupToSettingsPayload', () => {
 
 const fakeSupabase = (invokeImpl) => ({ functions: { invoke: vi.fn(invokeImpl) } });
 
+// What supabase-js returns for a non-2xx answer: no data, and the Response
+// on `error.context`.
+const httpError = (status, body) => ({
+  data: null,
+  error: {
+    name: 'FunctionsHttpError',
+    message: 'Edge Function returned a non-2xx status code',
+    context: new Response(typeof body === 'string' ? body : JSON.stringify(body), { status }),
+  },
+});
+const notDeployed = () => httpError(404, { code: 'NOT_FOUND', message: 'Requested function was not found' });
+
 describe('requestAiSetup', () => {
   it('returns a dispatch-ready payload on success', async () => {
     const supabase = fakeSupabase(async () => ({ data: { ok: true, setup: SAMPLE_SETUP }, error: null }));
@@ -76,13 +88,32 @@ describe('requestAiSetup', () => {
     expect(result.summary).toBe('Cafe open Mon–Sat.');
   });
 
-  it('signals AI_UNAVAILABLE when the function is not deployed', async () => {
+  it('signals AI_UNAVAILABLE only when the function is not deployed', async () => {
+    expect(await requestAiSetup(fakeSupabase(async () => notDeployed()), 'A cafe')).toEqual({ error: AI_UNAVAILABLE });
+  });
+
+  it('reports a network failure as its own message, not AI_UNAVAILABLE', async () => {
     const supabase = fakeSupabase(async () => ({
       data: null,
       error: { name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function' },
     }));
 
-    expect(await requestAiSetup(supabase, 'A cafe')).toEqual({ error: AI_UNAVAILABLE });
+    const result = await requestAiSetup(supabase, 'A cafe');
+
+    expect(result.error).not.toBe(AI_UNAVAILABLE);
+    expect(result.error).toMatch(/couldn't reach the ai service/i);
+  });
+
+  it('shows the function\'s own message for a non-2xx answer', async () => {
+    const supabase = fakeSupabase(async () => httpError(504, { error: 'The AI service took too long to respond. Try again.', code: 'ai_timeout' }));
+
+    expect(await requestAiSetup(supabase, 'A cafe')).toEqual({ error: 'The AI service took too long to respond. Try again.' });
+  });
+
+  it('falls back to a generic message when the error body is unreadable', async () => {
+    const supabase = fakeSupabase(async () => httpError(500, 'Internal Server Error'));
+
+    expect(await requestAiSetup(supabase, 'A cafe')).toEqual({ error: 'Setup generation failed. Try again.' });
   });
 
   it('passes a real server error through', async () => {
@@ -130,8 +161,7 @@ describe('requestTunedCoverage', () => {
   });
 
   it('passes AI_UNAVAILABLE through', async () => {
-    const supabase = fakeSupabase(async () => ({ data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send' } }));
-    expect(await requestTunedCoverage(supabase, args)).toEqual({ error: AI_UNAVAILABLE });
+    expect(await requestTunedCoverage(fakeSupabase(async () => notDeployed()), args)).toEqual({ error: AI_UNAVAILABLE });
   });
 
   it('errors when nothing usable came back', async () => {
@@ -170,8 +200,35 @@ describe('requestAiSchedule', () => {
   });
 
   it('signals AI_UNAVAILABLE on a 404', async () => {
-    const supabase = fakeSupabase(async () => ({ data: null, error: { message: 'Requested function was not found', context: { status: 404 } } }));
+    expect(await requestAiSchedule(fakeSupabase(async () => notDeployed()), { role: 'Barista' })).toEqual({ error: AI_UNAVAILABLE });
+  });
 
-    expect(await requestAiSchedule(supabase, { role: 'Barista' })).toEqual({ error: AI_UNAVAILABLE });
+  it('surfaces a server error instead of falling back', async () => {
+    const supabase = fakeSupabase(async () => httpError(502, { error: 'The AI service returned a malformed response.', code: 'ai_malformed_output' }));
+
+    expect(await requestAiSchedule(supabase, { role: 'Barista' })).toEqual({ error: 'The AI service returned a malformed response.' });
+  });
+});
+
+describe('mapWithConcurrency', () => {
+  it('keeps input order and never exceeds the limit', async () => {
+    let inFlight = 0;
+    let peak = 0;
+
+    const results = await mapWithConcurrency([30, 5, 20, 1, 10], 2, async (delay, index) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => { setTimeout(resolve, delay); });
+      inFlight -= 1;
+
+      return index;
+    });
+
+    expect(results).toEqual([0, 1, 2, 3, 4]);
+    expect(peak).toBe(2);
+  });
+
+  it('handles an empty list', async () => {
+    expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
   });
 });

@@ -90,7 +90,8 @@ Failures have the same shape with a different `code`, plus `detail` and `request
 | `forbidden` | 403 | The caller is not an active owner or manager | Check the `memberships` row |
 | `payload_too_large` | 413 | Body over 16 KB (setup) or 512 KB (schedule) | Report the roster size |
 
-Two things about the app's own behaviour until Task A3 lands:
+How the app reports these:
 
-- If the function cannot be reached at all, the Scheduler falls back to the built-in auto-fill and says AI "isn't set up yet". If you see that message after deploying, the function call is failing at the network level: check the function name and that the deploy succeeded. The setup wizard does the same thing more quietly: the **Describe it instead** option disappears for the rest of the session.
-- For any non-2xx answer the app shows the generic "Edge Function returned a non-2xx status code" instead of the function's message. Use the browser's Network tab or the logs to see the real `error` and `code`.
+- **Function not deployed (404).** The Scheduler falls back to the built-in auto-fill and says AI "isn't set up yet"; the setup wizard hides **Describe it instead** for the rest of the session. If you see either after deploying, check the function name and that the deploy succeeded.
+- **Anything else.** The function's own `error` message is shown under the AI draft button or in the wizard. A network failure shows "Couldn't reach the AI service".
+- After an AI draft, the model's notes appear under the button, one line per role. A role where nothing could be placed says so.
