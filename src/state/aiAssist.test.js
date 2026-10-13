@@ -203,6 +203,13 @@ describe('requestAiSchedule', () => {
     expect(await requestAiSchedule(fakeSupabase(async () => notDeployed()), { role: 'Barista' })).toEqual({ error: AI_UNAVAILABLE });
   });
 
+  it('surfaces a usage-limit error instead of falling back', async () => {
+    const message = 'Your workspace has used all of its AI schedule drafts for today. Try again later, or use Auto-fill.';
+    const supabase = fakeSupabase(async () => httpError(429, { error: message, code: 'ai_quota_exceeded' }));
+
+    expect(await requestAiSchedule(supabase, { role: 'Barista' })).toEqual({ error: message });
+  });
+
   it('surfaces a server error instead of falling back', async () => {
     const supabase = fakeSupabase(async () => httpError(502, { error: 'The AI service returned a malformed response.', code: 'ai_malformed_output' }));
 

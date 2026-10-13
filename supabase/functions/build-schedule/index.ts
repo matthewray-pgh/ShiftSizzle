@@ -8,8 +8,10 @@
 // Service_role key: membership check without the caller's RLS, as elsewhere.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { normalizeDraft, normalizeScheduleRequest } from '../_shared/aiOutput.ts';
-import { generateJson, logAi } from '../_shared/anthropic.ts';
+import { consumeAiQuota, settleAiQuota } from '../_shared/aiQuota.ts';
+import { generateJson } from '../_shared/anthropic.ts';
 import { corsHeaders, errorResponse, jsonResponse, readJsonBody } from '../_shared/http.ts';
+import { logAi } from '../_shared/log.ts';
 
 const FN = 'build-schedule';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
@@ -113,6 +115,12 @@ const handle = async (req) => {
     return jsonResponse({ ok: true, draft: { assignments: [], notes: 'No eligible employees for this role.' } });
   }
 
+  const quota = await consumeAiQuota(adminClient, { fn: FN, orgId, userId: callerData.user.id });
+
+  if (!quota.ok) {
+    return errorResponse(quota.error, quota.status, quota.code);
+  }
+
   const result = await generateJson({
     fn: FN,
     orgId,
@@ -123,6 +131,8 @@ const handle = async (req) => {
     maxTokens: 32000,
     timeoutMs: TIMEOUT_MS,
   });
+
+  await settleAiQuota(adminClient, { fn: FN, orgId, eventId: quota.eventId, result });
 
   if (!result.ok) {
     return errorResponse(result.error, result.status, result.code);

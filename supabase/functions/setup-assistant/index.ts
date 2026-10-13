@@ -8,8 +8,10 @@
 // without being subject to their own RLS policy.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { normalizeSetup } from '../_shared/aiOutput.ts';
-import { generateJson, logAi } from '../_shared/anthropic.ts';
+import { consumeAiQuota, settleAiQuota } from '../_shared/aiQuota.ts';
+import { generateJson } from '../_shared/anthropic.ts';
 import { corsHeaders, errorResponse, jsonResponse, readJsonBody } from '../_shared/http.ts';
+import { logAi } from '../_shared/log.ts';
 
 const FN = 'setup-assistant';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
@@ -144,6 +146,12 @@ const handle = async (req) => {
 
   const orgId = callerMembership.org_id;
 
+  const quota = await consumeAiQuota(adminClient, { fn: FN, orgId, userId: callerData.user.id });
+
+  if (!quota.ok) {
+    return errorResponse(quota.error, quota.status, quota.code);
+  }
+
   const result = await generateJson({
     fn: FN,
     orgId,
@@ -154,6 +162,8 @@ const handle = async (req) => {
     maxTokens: 8000,
     timeoutMs: TIMEOUT_MS,
   });
+
+  await settleAiQuota(adminClient, { fn: FN, orgId, eventId: quota.eventId, result });
 
   if (!result.ok) {
     return errorResponse(result.error, result.status, result.code);

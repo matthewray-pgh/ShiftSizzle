@@ -2,24 +2,13 @@
 // choice, timeout, error → HTTP status mapping, and logging.
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.133.0';
 import { readModelJson } from './aiOutput.ts';
+import { logAi } from './log.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 
 // Override with `supabase secrets set ANTHROPIC_MODEL=...` to change models
 // without a redeploy of the code.
 export const AI_MODEL = Deno.env.get('ANTHROPIC_MODEL') || 'claude-sonnet-5';
-
-// Structured log line. Callers pass ids, codes and counts only — never the
-// request body, the model output, or anything from the environment.
-export const logAi = (level, fn, fields) => {
-  const line = JSON.stringify({ fn, ...fields });
-
-  if (level === 'error') {
-    console.error(line);
-  } else {
-    console.log(line);
-  }
-};
 
 const fail = (error, status, code) => ({ ok: false, error, status, code });
 
@@ -58,12 +47,14 @@ const describeApiError = (error) => {
 // Runs one structured-output request and returns `{ ok: true, value }` (the
 // parsed JSON object, still to be validated by the caller) or
 // `{ ok: false, error, status, code }`. `timeoutMs` bounds the whole call,
-// retries included.
+// retries included. `usage` carries the token counts when the model
+// answered; `refund` is true when it never did, so the call shouldn't count
+// against the org's allowance.
 export const generateJson = async ({ fn, orgId, system, content, schema, effort, maxTokens, timeoutMs }) => {
   if (!ANTHROPIC_API_KEY) {
     logAi('error', fn, { org_id: orgId, code: 'ai_misconfigured', detail: 'ANTHROPIC_API_KEY is not set' });
 
-    return fail('AI is not configured correctly for this workspace.', 503, 'ai_misconfigured');
+    return { ...fail('AI is not configured correctly for this workspace.', 503, 'ai_misconfigured'), refund: true };
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY, maxRetries: 1 });
@@ -98,7 +89,8 @@ export const generateJson = async ({ fn, orgId, system, content, schema, effort,
       detail: `${error?.name ?? 'Error'}: ${error?.message ?? ''}`.slice(0, 500),
     });
 
-    return failure;
+    // A timeout may still have been billed upstream, so it isn't refunded.
+    return { ...failure, refund: failure.code !== 'ai_timeout' };
   }
 
   const result = readModelJson(message);
@@ -118,5 +110,5 @@ export const generateJson = async ({ fn, orgId, system, content, schema, effort,
     logAi('info', fn, { ...fields, code: 'ok' });
   }
 
-  return result;
+  return { ...result, usage: message.usage ?? null };
 };

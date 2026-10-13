@@ -10,6 +10,10 @@ Run every command from the repo root. The Supabase CLI is a dev dependency, so `
 npx supabase login
 npx supabase link --project-ref <your-project-ref>
 
+# Creates the ai_usage_events table and consume_ai_quota function
+# (migration 0009). Both AI functions refuse every call until this exists.
+npx supabase db push
+
 # The key is read from your shell, so it never lands in a file or the repo.
 npx supabase secrets set ANTHROPIC_API_KEY=<your-key>
 
@@ -66,7 +70,14 @@ Use **AI draft** on the Build Schedule page.
 - [ ] **Larger roster.** 3 or more roles with 15 or more people each. Every role gets a draft and the whole run finishes without an error. Roles are drafted one after another, so expect this to take a while; note the total time.
 - [ ] **People with two roles.** Someone who works two roles is not given two shifts on the same day across them.
 
-## 5. Troubleshooting
+## 5. Usage limits
+
+Each org gets 20 `setup-assistant` calls and 100 `build-schedule` calls per trailing 24 hours. One AI draft click uses one call per role that has coverage targets.
+
+- [ ] After a few drafts, `select function_name, input_tokens, output_tokens, created_at from ai_usage_events order by created_at desc limit 10;` in the SQL editor shows one row per call, with token counts filled in.
+- [ ] To see the limit message without making 100 calls, temporarily set `'build-schedule': 1` in `supabase/functions/_shared/aiQuota.ts`, redeploy, and draft a week with two roles. The second role shows "used all of its AI schedule drafts for today" and the app does not auto-fill. Restore the number and redeploy.
+
+## 6. Troubleshooting
 
 The Supabase CLI has no `functions logs` command. Read logs in the dashboard: **Edge Functions → (function name) → Logs**. Each AI call writes one JSON line, for example:
 
@@ -87,6 +98,8 @@ Failures have the same shape with a different `code`, plus `detail` and `request
 | `ai_incomplete_output` | 422 | The description did not yield any shift types or roles | Add detail to the description |
 | `ai_refused` | 422 | The model declined the request | Rephrase the description |
 | `ai_invalid_picks_dropped` | (200) | The model returned people, days or shifts that were not in the request; they were discarded | Informational; worth a look if `dropped` is large |
+| `ai_quota_exceeded` | 429 | The org used its allowance for the last 24 hours (20 setup requests, 100 role drafts) | Wait, or raise the numbers in `supabase/functions/_shared/aiQuota.ts` and redeploy |
+| `quota_check_failed` | 500 | The usage check could not run, usually because migration 0009 has not been applied | Run `npx supabase db push` |
 | `forbidden` | 403 | The caller is not an active owner or manager | Check the `memberships` row |
 | `payload_too_large` | 413 | Body over 16 KB (setup) or 512 KB (schedule) | Report the roster size |
 
