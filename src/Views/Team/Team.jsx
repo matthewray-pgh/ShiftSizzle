@@ -195,7 +195,10 @@ export const Team = () => {
     setInviteSubmitting(false);
 
     if (error || data?.error) {
-      setInviteError(data?.error ?? error.message);
+      // A non-2xx answer arrives as `error` with the function's own
+      // `{ error }` body still unread on `error.context`.
+      const body = await error?.context?.json?.().catch(() => null);
+      setInviteError(data?.error ?? body?.error ?? error.message);
       return;
     }
 

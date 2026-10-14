@@ -5,6 +5,7 @@ import { Button, InputField } from '../../Components';
 import { useAuth } from '../../state/AuthState';
 import { supabase } from '../../lib/supabaseClient';
 import logo from '../../Assets/ShiftSizzle.Logo.png';
+import { MIN_PASSWORD_LENGTH, PASSWORD_HINT, passwordProblem } from './passwordRules';
 
 import './Auth.scss';
 
@@ -24,8 +25,10 @@ export const AcceptInvite = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    const weakPassword = passwordProblem(password);
+
+    if (weakPassword) {
+      setError(weakPassword);
       return;
     }
 
@@ -81,8 +84,9 @@ export const AcceptInvite = () => {
         </div>
         {error && <p className="auth-page__error">{error}</p>}
         <form className="auth-page__form" onSubmit={handleSubmit}>
-          <InputField label="Password" name="password" type="password" value={password} onChange={setPassword} required autoComplete="new-password" minLength={6} />
-          <InputField label="Confirm Password" name="confirmPassword" type="password" value={confirmPassword} onChange={setConfirmPassword} required autoComplete="new-password" minLength={6} />
+          <InputField label="Password" name="password" type="password" value={password} onChange={setPassword} required autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} />
+          <p className="auth-page__hint">{PASSWORD_HINT}</p>
+          <InputField label="Confirm Password" name="confirmPassword" type="password" value={confirmPassword} onChange={setConfirmPassword} required autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} />
           <Button type="submit" className="auth-page__submit" disabled={submitting}>
             {submitting ? 'Saving…' : 'Set password & continue'}
           </Button>
