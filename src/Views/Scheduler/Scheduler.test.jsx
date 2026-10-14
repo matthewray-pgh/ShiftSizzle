@@ -780,4 +780,79 @@ describe('Scheduler view', () => {
 
     expect(screen.getByPlaceholderText(/Notes for this week/)).toBeInTheDocument();
   });
+  describe('AI draft', () => {
+    const httpError = (status, body) => ({
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(JSON.stringify(body), { status }),
+      },
+    });
+
+    // A fresh week (June 7) after a scheduled one (May 24), with one Manager
+    // needed on Monday.
+    const startAiDraft = async (invokeImpl) => {
+      const invoke = vi.spyOn(supabase.functions, 'invoke').mockImplementation(invokeImpl);
+
+      await renderScheduler({
+        settings: {
+          shiftTypes: ['Open'],
+          weekStartsOn: 'Sunday',
+          operatingHours: singleDayOperatingHours,
+          roleCoverage: { Manager: { Monday: { Open: 1 } } },
+        },
+        employees: [{ id: '1', name: 'Jen Ray', roles: ['Manager'], shiftsPerWeek: 5, status: 'active', availability: availableEveryDay }],
+        schedules: [{
+          weekLabel: 'May 24 - May 30, 2026', startDate: '2026-05-24', endDate: '2026-05-30', role: 'Manager',
+          status: 'published', requirements: grid(1), assignments: { 1: { ...emptyAssignments(), Monday: ['Open'] } },
+        }],
+      });
+
+      selectWeek('2026-06-07');
+      fireEvent.click(screen.getByRole('button', { name: 'Start fresh' }));
+      fireEvent.click(getDayTab('Monday'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /AI draft/ }));
+      });
+
+      return invoke;
+    };
+
+    it('applies the picks, shows the model\'s notes, and sends last week\'s assignments', async () => {
+      const invoke = await startAiDraft(async () => ({
+        data: { ok: true, draft: { assignments: [{ employee_id: '1', day: 'Monday', shift: 'Open' }], notes: 'Jen keeps her usual Monday.' } },
+        error: null,
+      }));
+
+      expect(await screen.findByText('Jen keeps her usual Monday.')).toBeInTheDocument();
+      expect(within(getShiftCard('Manager')).getByText('Jen Ray')).toBeInTheDocument();
+
+      const [name, { body }] = invoke.mock.calls[0];
+      expect(name).toBe('build-schedule');
+      expect(body.last_week).toEqual([{ employee_id: '1', day: 'Monday', shift: 'Open' }]);
+    });
+
+    it('shows a server error instead of silently auto-filling', async () => {
+      await startAiDraft(async () => httpError(504, { error: 'The AI service took too long to respond. Try again.', code: 'ai_timeout' }));
+
+      expect(await screen.findByText('The AI service took too long to respond. Try again.')).toBeInTheDocument();
+      expect(screen.queryByText(/used the built-in auto-fill/)).not.toBeInTheDocument();
+      expect(within(getShiftCard('Manager')).queryByText('Jen Ray')).not.toBeInTheDocument();
+    });
+
+    it('says so when the draft places no one', async () => {
+      await startAiDraft(async () => ({ data: { ok: true, draft: { assignments: [], notes: '' } }, error: null }));
+
+      expect(await screen.findByText(/The AI draft didn’t place anyone/)).toBeInTheDocument();
+    });
+
+    it('falls back to auto-fill only when the function is not deployed', async () => {
+      await startAiDraft(async () => httpError(404, { code: 'NOT_FOUND', message: 'Requested function was not found' }));
+
+      expect(await screen.findByText(/AI scheduling isn’t set up yet — used the built-in auto-fill/)).toBeInTheDocument();
+      expect(within(getShiftCard('Manager')).getByText('Jen Ray')).toBeInTheDocument();
+    });
+  });
 });

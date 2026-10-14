@@ -7,37 +7,37 @@
 // verifying the caller's membership means reading the memberships table
 // without being subject to their own RLS policy.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import Anthropic from 'https://esm.sh/@anthropic-ai/sdk';
+import { normalizeSetup } from '../_shared/aiOutput.ts';
+import { consumeAiQuota, settleAiQuota } from '../_shared/aiQuota.ts';
+import { generateJson } from '../_shared/anthropic.ts';
+import { corsHeaders, errorResponse, jsonResponse, readJsonBody } from '../_shared/http.ts';
+import { logAi } from '../_shared/log.ts';
 
+const FN = 'setup-assistant';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-const jsonResponse = (body, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+const MAX_BODY_BYTES = 16 * 1024;
+const TIMEOUT_MS = 60_000;
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Structured outputs reject numeric and length keywords (`minimum`,
+// `minItems`, ...), so ranges are enforced in `normalizeSetup` instead.
+const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
 
 const SETUP_SCHEMA = {
   type: 'object',
   properties: {
-    week_starts_on: { type: ['string', 'null'], enum: [...DAYS, null] },
+    week_starts_on: nullable({ type: 'string', enum: DAYS }),
     shift_types: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
           label: { type: 'string' },
-          start_time: { type: ['string', 'null'], description: 'HH:MM 24-hour, or null' },
-          end_time: { type: ['string', 'null'], description: 'HH:MM 24-hour, or null' },
+          start_time: nullable({ type: 'string', description: 'HH:MM 24-hour' }),
+          end_time: nullable({ type: 'string', description: 'HH:MM 24-hour' }),
         },
         required: ['label', 'start_time', 'end_time'],
         additionalProperties: false,
@@ -52,8 +52,8 @@ const SETUP_SCHEMA = {
         properties: {
           day: { type: 'string', enum: DAYS },
           is_open: { type: 'boolean' },
-          open_time: { type: ['string', 'null'], description: 'HH:MM 24-hour, or null when closed' },
-          close_time: { type: ['string', 'null'], description: 'HH:MM 24-hour, or null when closed' },
+          open_time: nullable({ type: 'string', description: 'HH:MM 24-hour; null when closed' }),
+          close_time: nullable({ type: 'string', description: 'HH:MM 24-hour; null when closed' }),
         },
         required: ['day', 'is_open', 'open_time', 'close_time'],
         additionalProperties: false,
@@ -67,7 +67,7 @@ const SETUP_SCHEMA = {
         properties: {
           role: { type: 'string' },
           shift_label: { type: 'string' },
-          count: { type: 'integer', minimum: 0 },
+          count: { type: 'integer', description: 'Zero or more.' },
         },
         required: ['role', 'shift_label', 'count'],
         additionalProperties: false,
@@ -88,19 +88,19 @@ From the owner's description, produce:
 - week_starts_on: only if the description states it; otherwise null.
 Use 24-hour HH:MM times. Do not invent roles or days the description contradicts.`;
 
-Deno.serve(async (req) => {
+const handle = async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    return errorResponse('Method not allowed', 405, 'method_not_allowed');
   }
 
   const authHeader = req.headers.get('Authorization');
 
   if (!authHeader) {
-    return jsonResponse({ error: 'Missing authorization header' }, 401);
+    return errorResponse('Missing authorization header', 401, 'unauthenticated');
   }
 
   const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -108,57 +108,84 @@ Deno.serve(async (req) => {
   const { data: callerData, error: callerError } = await adminClient.auth.getUser(token);
 
   if (callerError || !callerData.user) {
-    return jsonResponse({ error: 'Invalid session' }, 401);
+    return errorResponse('Invalid session', 401, 'unauthenticated');
   }
 
-  let body;
+  const request = await readJsonBody(req, MAX_BODY_BYTES);
 
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid request body' }, 400);
+  if (!request.ok) {
+    return errorResponse(request.error, request.status, request.code);
   }
 
-  const description = `${body?.description ?? ''}`.trim();
+  const description = `${request.body.description ?? ''}`.trim();
 
   if (description.length < 8) {
-    return jsonResponse({ error: 'Describe your business in a sentence or two.' }, 400);
+    return errorResponse('Describe your business in a sentence or two.', 400, 'invalid_request');
   }
 
   if (description.length > 2000) {
-    return jsonResponse({ error: 'That description is too long — keep it to a few sentences.' }, 400);
+    return errorResponse('That description is too long — keep it to a few sentences.', 400, 'invalid_request');
   }
 
   const { data: callerMembership, error: membershipError } = await adminClient
     .from('memberships')
-    .select('account_role')
+    .select('org_id, account_role')
     .eq('user_id', callerData.user.id)
     .eq('status', 'active')
     .maybeSingle();
 
-  if (membershipError || !callerMembership || !['owner', 'manager'].includes(callerMembership.account_role)) {
-    return jsonResponse({ error: 'Not authorized to configure this workspace' }, 403);
+  if (membershipError) {
+    logAi('error', FN, { code: 'membership_lookup_failed', status: 500, detail: membershipError.message });
+
+    return errorResponse('Could not verify your workspace access. Try again.', 500, 'internal_error');
   }
 
-  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  if (!callerMembership || !['owner', 'manager'].includes(callerMembership.account_role)) {
+    return errorResponse('Not authorized to configure this workspace', 403, 'forbidden');
+  }
 
+  const orgId = callerMembership.org_id;
+
+  const quota = await consumeAiQuota(adminClient, { fn: FN, orgId, userId: callerData.user.id });
+
+  if (!quota.ok) {
+    return errorResponse(quota.error, quota.status, quota.code);
+  }
+
+  const result = await generateJson({
+    fn: FN,
+    orgId,
+    system: SYSTEM_PROMPT,
+    content: description,
+    schema: SETUP_SCHEMA,
+    effort: 'low',
+    maxTokens: 8000,
+    timeoutMs: TIMEOUT_MS,
+  });
+
+  await settleAiQuota(adminClient, { fn: FN, orgId, eventId: quota.eventId, result });
+
+  if (!result.ok) {
+    return errorResponse(result.error, result.status, result.code);
+  }
+
+  const setup = normalizeSetup(result.value);
+
+  if (!setup) {
+    logAi('error', FN, { org_id: orgId, code: 'ai_incomplete_output', status: 422 });
+
+    return errorResponse('That description didn’t give enough to build a setup — add a bit more detail and try again.', 422, 'ai_incomplete_output');
+  }
+
+  return jsonResponse({ ok: true, setup });
+};
+
+Deno.serve(async (req) => {
   try {
-    const response = await anthropic.messages.parse({
-      model: 'claude-sonnet-5',
-      max_tokens: 1200,
-      system: SYSTEM_PROMPT,
-      output_config: {
-        format: { type: 'json_schema', schema: SETUP_SCHEMA },
-      },
-      messages: [{ role: 'user', content: description }],
-    });
-
-    if (response.stop_reason === 'refusal') {
-      return jsonResponse({ error: 'That description could not be processed.' }, 422);
-    }
-
-    return jsonResponse({ ok: true, setup: response.parsed_output });
+    return await handle(req);
   } catch (error) {
-    return jsonResponse({ error: error.message ?? 'Setup generation failed' }, 500);
+    logAi('error', FN, { code: 'internal_error', status: 500, detail: `${error?.name ?? 'Error'}: ${error?.message ?? ''}`.slice(0, 500) });
+
+    return errorResponse('Something went wrong generating that.', 500, 'internal_error');
   }
 });

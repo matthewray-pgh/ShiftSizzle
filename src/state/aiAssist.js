@@ -1,22 +1,68 @@
 import { DAYS } from "./AppState";
 import { buildTemplateRoleCoverage } from "./setupTemplates";
 
-// Returned as `error` when the Edge Function isn't deployed (or can't be
-// reached at all) — callers use this to fall back to the built-in path
-// silently rather than surfacing a scary message.
+// Returned as `error` only when the Edge Function isn't deployed (a 404 from
+// the functions gateway) — callers use this to fall back to the built-in
+// path quietly. Every other failure comes back as a message worth showing.
 export const AI_UNAVAILABLE = "ai-unavailable";
+
+const AI_UNREACHABLE_MESSAGE = "Couldn't reach the AI service — check your connection and try again.";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const cleanTime = (value) => (typeof value === "string" && HHMM.test(value) ? value : "");
 
-// supabase-js surfaces a missing/unreachable function as a fetch error or a
-// 404; anything else is a real error worth showing.
-const isMissingFunction = (error) =>
-  !error
-    ? false
-    : error.name === "FunctionsFetchError"
-      || error.context?.status === 404
-      || /not found|does not exist|failed to (send|fetch)/i.test(error.message ?? "");
+// Invokes an AI Edge Function and returns `{ data }` or `{ error, code }`.
+// supabase-js hands back `data: null` for any non-2xx answer and keeps the
+// real body on `error.context` (the Response), so the function's own
+// `{ error, code }` has to be read from there.
+const invokeAi = async (supabase, name, body, fallbackMessage) => {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+
+  if (!error) {
+    return data?.error ? { error: data.error, code: data.code ?? null } : { data: data ?? {} };
+  }
+
+  if (error.context?.status === 404) {
+    return { error: AI_UNAVAILABLE };
+  }
+
+  if (error.name === "FunctionsFetchError") {
+    return { error: AI_UNREACHABLE_MESSAGE, code: "network_error" };
+  }
+
+  let payload = null;
+
+  try {
+    payload = typeof error.context?.json === "function" ? await error.context.json() : null;
+  } catch {
+    payload = null;
+  }
+
+  return {
+    error: typeof payload?.error === "string" && payload.error ? payload.error : fallbackMessage,
+    code: payload?.code ?? null,
+  };
+};
+
+// Runs `task` over `items` with at most `limit` in flight, returning results
+// in input order.
+export const mapWithConcurrency = async (items, limit, task) => {
+  const results = new Array(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      // eslint-disable-next-line no-await-in-loop
+      results[index] = await task(items[index], index);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+
+  return results;
+};
 
 // Map the setup-assistant JSON into the exact settings payload shape
 // `settingsFromTemplate` produces, so `UPDATE_SETTINGS` handles it
@@ -87,16 +133,10 @@ export const aiSetupToSettingsPayload = (setup, currentSettings = {}) => {
 // settings payload, or `{ error }` (AI_UNAVAILABLE when the function isn't
 // there).
 export const requestAiSetup = async (supabase, description, currentSettings = {}) => {
-  const { data, error } = await supabase.functions.invoke("setup-assistant", {
-    body: { description },
-  });
+  const { data, error } = await invokeAi(supabase, "setup-assistant", { description }, "Setup generation failed. Try again.");
 
-  if (isMissingFunction(error)) {
-    return { error: AI_UNAVAILABLE };
-  }
-
-  if (error || data?.error) {
-    return { error: data?.error ?? error?.message ?? "Setup generation failed." };
+  if (error) {
+    return { error };
   }
 
   const payload = aiSetupToSettingsPayload(data.setup, currentSettings);
@@ -156,16 +196,10 @@ export const requestTunedCoverage = async (supabase, { templateLabel, roles, shi
 // `{ ok, assignments: [{ employeeId, day, shift }], notes }` or `{ error }`.
 // The caller still re-validates every pick before applying it.
 export const requestAiSchedule = async (supabase, requestBody) => {
-  const { data, error } = await supabase.functions.invoke("build-schedule", {
-    body: requestBody,
-  });
+  const { data, error } = await invokeAi(supabase, "build-schedule", requestBody, "Schedule generation failed. Try again.");
 
-  if (isMissingFunction(error)) {
-    return { error: AI_UNAVAILABLE };
-  }
-
-  if (error || data?.error) {
-    return { error: data?.error ?? error?.message ?? "Schedule generation failed." };
+  if (error) {
+    return { error };
   }
 
   const draft = data.draft ?? {};
