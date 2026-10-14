@@ -266,6 +266,29 @@
     }
   }
 
+  &__manual {
+    margin: -0.4rem 0 0;
+    color: styles.$text-secondary;
+    font-size: 0.8rem;
+  }
+
+  // Collapsed by default so the coverage grid stays the focus of the step.
+  &__tune {
+    display: grid;
+    gap: 0.5rem;
+
+    summary {
+      color: #1d4ed8;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    &[open] summary {
+      margin-bottom: 0.5rem;
+    }
+  }
+
   &__link {
     padding: 0;
     border: 0;
@@ -275,12 +298,6 @@
     font-weight: 700;
     font-size: 0.76rem;
     cursor: pointer;
-  }
-
-  &__review-hint {
-    margin: 0.5rem 0 0;
-    font-size: 0.8rem;
-    color: #b45309;
   }
 
   // Build step: flags a missing team or coverage targets instead of just

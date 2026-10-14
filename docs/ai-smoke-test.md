@@ -50,15 +50,15 @@ To test as a real user, sign in to the app, copy `access_token` from the `sb-<pr
 | `build-schedule` with `{}` | 400, `code: invalid_request` |
 | `setup-assistant` with a real description, as an owner | 200, `{"ok":true,"setup":{...}}` |
 
-## 3. Setup wizard: "Describe it instead"
+## 3. Setup wizard: describe your business
 
 Sign in as an owner on a workspace that has not finished setup.
 
-- [ ] Open the setup wizard and choose **Describe it instead**.
+- [ ] Open the setup wizard. Step 1 opens with **Tell us about your business** above the templates.
 - [ ] Enter: `Coffee shop open 6am to 3pm Monday to Saturday, closed Sunday. Two baristas and a shift lead at open, one barista at close.`
-- [ ] A summary line appears, and the review step shows shift types, roles, hours with Sunday closed, and headcounts that match the description.
+- [ ] After **Generate my setup** you land on the Hours step with a summary line. Hours (Sunday closed), shift types, roles, and coverage headcounts on the following steps match the description.
 - [ ] Finish the wizard. Settings shows the same shifts, roles, hours and coverage.
-- [ ] Pick a template, then fill in **Fine-tune staffing for your location** (for example `busier on weekends, add one server at close`). The headcounts change; the roles and shifts do not.
+- [ ] Pick a template instead and continue to the Coverage step. Open **Adjust these for my location**, enter a note (for example `busier on weekends, add one server at close`), and choose **Adjust staffing**. The headcounts change; the roles and shifts do not.
 - [ ] Enter a description that says nothing about a business (`asdf asdf asdf`). You get an error message, not a blank or broken setup.
 
 ## 4. Scheduler: AI draft
@@ -105,6 +105,6 @@ Failures have the same shape with a different `code`, plus `detail` and `request
 
 How the app reports these:
 
-- **Function not deployed (404).** The Scheduler falls back to the built-in auto-fill and says AI "isn't set up yet"; the setup wizard hides **Describe it instead** for the rest of the session. If you see either after deploying, check the function name and that the deploy succeeded.
+- **Function not deployed (404).** The Scheduler falls back to the built-in auto-fill and says AI "isn't set up yet"; the setup wizard hides the **Tell us about your business** box for the rest of the session. If you see either after deploying, check the function name and that the deploy succeeded.
 - **Anything else.** The function's own `error` message is shown under the AI draft button or in the wizard. A network failure shows "Couldn't reach the AI service".
 - After an AI draft, the model's notes appear under the button, one line per role. A role where nothing could be placed says so.

@@ -546,7 +546,7 @@
   }
 
   // ---- coverage targets grid ----
-  // Each day's row is the shared <CoverageDayRow> component.
+  // The grid itself is the shared <CoverageHeatmap> component.
   &__coverage-grid {
     display: flex;
     flex-direction: column;

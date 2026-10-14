@@ -20,7 +20,6 @@ import {
 } from '../Settings/SettingsFields';
 import {
   SETUP_TEMPLATES,
-  buildTemplateRoleCoverage,
   getSetupTemplate,
   settingsFromTemplate,
 } from '../../state/setupTemplates';
@@ -29,17 +28,17 @@ import { supabase } from '../../lib/supabaseClient';
 
 import './SetupWizard.scss';
 
-// The guided walk (shiftTypes -> coverage) is literally the Settings page's
+// The guided walk (hours -> coverage) is literally the Settings page's
 // own field components, one at a time, each step's Continue committing
 // immediately — see multi-location-... no, see the Settings/setup-wizard
 // review: reusing the same components is what keeps "edit hours" (etc.)
 // from having two implementations that quietly drift apart.
-const STEPS = ['template', 'shiftTypes', 'teamRoles', 'hours', 'coverage', 'team', 'build'];
+const STEPS = ['template', 'hours', 'shiftTypes', 'teamRoles', 'coverage', 'team', 'build'];
 const STEP_LABEL = {
   template: 'Business type',
+  hours: 'Hours',
   shiftTypes: 'Shift types',
   teamRoles: 'Team roles',
-  hours: 'Hours',
   coverage: 'Coverage',
   team: 'Team',
   build: 'Build',
@@ -73,23 +72,22 @@ export const SetupWizard = () => {
 
   // Rendered inside <HydrationGate>, so `state` is already loaded here.
   const [step, setStep] = useState(() => firstIncompleteStep(getSchedulerReadiness(state)));
-  const [templateId, setTemplateId] = useState('full-service-restaurant');
-  const [weekStartsOn, setWeekStartsOn] = useState(settings.weekStartsOn || 'Monday');
+  const [templateId, setTemplateId] = useState('');
   const [teamDraft, setTeamDraft] = useState({ name: '', roles: [] });
   const [addedTeam, setAddedTeam] = useState([]);
   const [building, setBuilding] = useState(false);
 
-  // "Describe it instead" — the AI setup path. `aiEnabled` flips off for the
-  // rest of the session once the Edge Function answers "not deployed".
-  const [aiMode, setAiMode] = useState(false);
+  // "Describe your business" — the AI setup path, offered ahead of the
+  // templates. `aiEnabled` flips off for the rest of the session once the
+  // Edge Function answers "not deployed", leaving just the templates.
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiText, setAiText] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState('');
   const [aiSummary, setAiSummary] = useState('');
 
-  // Optional "tune a picked template for my size" — adjusts only the
-  // coverage numbers, keeping the template's roles/shifts/hours.
+  // Optional "adjust these for my location" on the coverage step — changes
+  // only the headcounts, keeping the roles/shifts/hours.
   const [sizeHint, setSizeHint] = useState('');
   const [tuning, setTuning] = useState(false);
   const [tuneNote, setTuneNote] = useState('');
@@ -137,7 +135,7 @@ export const SetupWizard = () => {
     setStep(target);
   };
 
-  // A guided-walk step (shiftTypes/teamRoles/hours/coverage) commits its
+  // A guided-walk step (hours/shiftTypes/teamRoles/coverage) commits its
   // slice of the shared draft immediately on Continue, the same way the old
   // per-step dispatches did — so `state.settings` (and the outer
   // `teamRoles`/`shiftTypes`/`openDays` above) stay current for later steps.
@@ -146,65 +144,30 @@ export const SetupWizard = () => {
     goNext();
   };
 
-  // ---- Step 1: template + week start ----
-  const commitTemplate = async () => {
+  // ---- Step 1: describe the business, or pick a template ----
+  // Either path commits a week start too (the current one, else Monday) so
+  // the live canvas has a real week for autosave to write against; the
+  // Hours step is where the manager confirms or changes it.
+  const selectCurrentWeek = (weekStartsOn) => {
+    const currentWeek = getCurrentWeekStartDate(weekStartsOn);
+
+    if (currentWeek) {
+      dispatch({ type: 'SELECT_WEEK', payload: { startDate: currentWeek } });
+    }
+  };
+
+  const commitTemplate = () => {
+    const weekStartsOn = settings.weekStartsOn || 'Monday';
     const base = settingsFromTemplate(templateId, { currentSettings: settings, weekStartsOn });
 
     if (!base) {
       return;
     }
 
-    let roleCoverage = base.roleCoverage;
-    let summary = '';
+    dispatch({ type: 'UPDATE_SETTINGS', payload: base });
+    selectCurrentWeek(weekStartsOn);
+    setAiSummary('');
     setTuneNote('');
-
-    const note = sizeHint.trim();
-
-    if (note && aiEnabled) {
-      const def = getSetupTemplate(templateId);
-      setTuning(true);
-
-      const result = await requestTunedCoverage(supabase, {
-        templateLabel: def.label,
-        roles: def.teamRoles,
-        shiftTypes: def.shiftTypes,
-        note,
-        currentSettings: settings,
-      });
-
-      setTuning(false);
-
-      if (result.error === AI_UNAVAILABLE) {
-        setAiEnabled(false);
-      } else if (result.error) {
-        setTuneNote("Couldn't adjust staffing automatically — using the template's numbers. Tune them on the coverage step.");
-      } else {
-        // Merge the tuned counts over the template's compact spec, then
-        // expand against the template's own open days.
-        const mergedSpec = { ...def.coverage };
-
-        Object.entries(result.coverageByRole).forEach(([role, byShift]) => {
-          mergedSpec[role] = { ...(def.coverage[role] ?? {}), ...byShift };
-        });
-
-        roleCoverage = buildTemplateRoleCoverage(mergedSpec, base.operatingHours);
-        summary = result.summary;
-      }
-    }
-
-    dispatch({ type: 'UPDATE_SETTINGS', payload: { ...base, roleCoverage } });
-    // Put the live canvas on the real current week straight away so the
-    // silent autosave has a valid week to write against, not "".
-    const currentWeek = getCurrentWeekStartDate(weekStartsOn);
-
-    if (currentWeek) {
-      dispatch({ type: 'SELECT_WEEK', payload: { startDate: currentWeek } });
-    }
-
-    if (summary) {
-      setTuneNote(summary);
-    }
-
     goNext();
   };
 
@@ -225,7 +188,6 @@ export const SetupWizard = () => {
 
     if (result.error === AI_UNAVAILABLE) {
       setAiEnabled(false);
-      setAiMode(false);
       setAiError('');
       return;
     }
@@ -235,46 +197,70 @@ export const SetupWizard = () => {
       return;
     }
 
-    dispatch({ type: 'UPDATE_SETTINGS', payload: { ...result.payload, weekStartsOn: weekStartsOn || result.payload.weekStartsOn } });
-
-    const currentWeek = getCurrentWeekStartDate(weekStartsOn || result.payload.weekStartsOn);
-
-    if (currentWeek) {
-      dispatch({ type: 'SELECT_WEEK', payload: { startDate: currentWeek } });
-    }
-
-    setWeekStartsOn(weekStartsOn || result.payload.weekStartsOn);
+    dispatch({ type: 'UPDATE_SETTINGS', payload: result.payload });
+    selectCurrentWeek(result.payload.weekStartsOn);
+    setTemplateId('');
     setAiSummary(result.summary);
+    setTuneNote('');
     goNext();
   };
 
   // ---- Step: hours (shared with Settings > Business Hours) ----
-  const formOpenDays = getOpenDays(f.form);
-
-  // ---- Step: coverage (shared with Settings > Coverage Targets) ----
-  // Which roles the manager has actually looked at on this step — a role is
-  // "reviewed" once it's been the selected one. Feeds the pill check marks
-  // and the soft "still to review" nudge (Continue is never blocked, since
-  // the template already filled every role in). Wizard-only — Settings'
-  // own Coverage Targets section has no equivalent concept.
-  const [reviewedRoles, setReviewedRoles] = useState(() => new Set());
-  const markReviewed = (role) => setReviewedRoles((prev) => (
-    !role || prev.has(role) ? prev : new Set(prev).add(role)
-  ));
-
-  useEffect(() => {
-    if (step === 'coverage') {
-      markReviewed(f.coverageRole);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, f.coverageRole]);
-
-  const pickCoverageRole = (role) => {
-    f.setCoverageRole(role);
-    markReviewed(role);
+  // Also where the week start is confirmed, so the week is re-selected in
+  // case it moved.
+  const commitHours = () => {
+    dispatch({ type: 'UPDATE_SETTINGS', payload: f.form });
+    selectCurrentWeek(f.form.weekStartsOn);
+    goNext();
   };
 
-  const unreviewedRoles = f.form.teamRoles.filter((role) => !reviewedRoles.has(role));
+  // ---- Step: coverage (shared with Settings > Coverage Targets) ----
+  // Asks the AI for headcounts that fit the note and applies them to every
+  // open day, leaving roles, shifts and hours alone.
+  const tuneCoverage = async () => {
+    const note = sizeHint.trim();
+
+    if (!note) {
+      return;
+    }
+
+    setTuning(true);
+    setTuneNote('');
+
+    const result = await requestTunedCoverage(supabase, {
+      templateLabel: getSetupTemplate(templateId)?.label || settings.businessName || 'A small business',
+      roles: f.form.teamRoles,
+      shiftTypes: f.form.shiftTypes,
+      note,
+      currentSettings: settings,
+    });
+
+    setTuning(false);
+
+    if (result.error === AI_UNAVAILABLE) {
+      setAiEnabled(false);
+      return;
+    }
+
+    if (result.error) {
+      setTuneNote(`Couldn't adjust staffing — your numbers are unchanged. ${result.error}`);
+      return;
+    }
+
+    const roleCoverage = { ...(f.form.roleCoverage ?? {}) };
+
+    Object.entries(result.coverageByRole).forEach(([role, byShift]) => {
+      roleCoverage[role] = Object.fromEntries(DAYS.map((day) => [
+        day,
+        { ...(roleCoverage[role]?.[day] ?? {}), ...(f.form.operatingHours?.[day]?.isOpen ? byShift : {}) },
+      ]));
+    });
+
+    f.updateForm('roleCoverage', roleCoverage);
+    setTuneNote(result.summary || 'Staffing adjusted for your location.');
+  };
+
+  const formOpenDays = getOpenDays(f.form);
 
   // ---- Step: team ----
   const toggleDraftRole = (role) => {
@@ -328,7 +314,7 @@ export const SetupWizard = () => {
 
   const finishToBuilder = ({ autoBuild }) => {
     setBuilding(true);
-    const currentWeek = getCurrentWeekStartDate(settings.weekStartsOn || weekStartsOn);
+    const currentWeek = getCurrentWeekStartDate(settings.weekStartsOn || 'Monday');
 
     if (currentWeek) {
       dispatch({ type: 'SELECT_WEEK', payload: { startDate: currentWeek } });
@@ -381,7 +367,7 @@ export const SetupWizard = () => {
         <ContentPanel className="setup__card">
           <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">What kind of business is this?</h2>
 
-          {aiMode ? (
+          {aiEnabled && (
             <div className="setup__ai">
               <label className="setup__field-label" htmlFor="setup-ai-description">
                 Tell us about your business
@@ -389,53 +375,61 @@ export const SetupWizard = () => {
               <textarea
                 id="setup-ai-description"
                 className="setup__ai-input"
-                rows={4}
+                rows={3}
                 value={aiText}
                 onChange={(event) => setAiText(event.target.value)}
                 placeholder="Ex. Coffee shop, open 6am–3pm weekdays and 7–2 weekends. Two baristas and a shift lead at open, one barista mid."
               />
               {aiError && <p className="setup__ai-error">{aiError}</p>}
               <div className="setup__actions">
-                <button type="button" className="button-outline" onClick={() => { setAiMode(false); setAiError(''); }}>
-                  Pick from the list
-                </button>
                 <Button type="button" onClick={generateFromDescription} disabled={aiBusy || aiText.trim().length < 8}>
                   {aiBusy ? 'Generating…' : 'Generate my setup'}
                 </Button>
               </div>
             </div>
-          ) : (
-          <>
-          <div className="setup__templates" role="radiogroup" aria-label="Business type">
-            {SETUP_TEMPLATES.map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                role="radio"
-                aria-checked={templateId === template.id}
-                className={`setup__template ${templateId === template.id ? 'is-active' : ''}`.trim()}
-                onClick={() => setTemplateId(template.id)}
-              >
-                <strong>{template.label}</strong>
-                <span>{template.description}</span>
-                <span className="setup__template-meta">
-                  {template.roles.join(' · ')}
-                </span>
-              </button>
-            ))}
-            {aiEnabled && (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={false}
-                className="setup__template setup__template--other"
-                onClick={() => { setAiMode(true); setAiError(''); }}
-              >
-                <strong>Something else</strong>
-                <span>Describe your business and we'll build the setup for you.</span>
-              </button>
-            )}
+          )}
+
+          <div className="setup__field">
+            <span className="setup__field-label">
+              {aiEnabled ? 'Or start from a common setup' : 'Start from a common setup'}
+            </span>
+            <div className="setup__templates" role="radiogroup" aria-label="Business type">
+              {SETUP_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={templateId === template.id}
+                  className={`setup__template ${templateId === template.id ? 'is-active' : ''}`.trim()}
+                  onClick={() => setTemplateId(template.id)}
+                >
+                  <strong>{template.label}</strong>
+                  <span>{template.description}</span>
+                  <span className="setup__template-meta">
+                    {template.roles.join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div className="setup__actions">
+            <Button type="button" onClick={commitTemplate} disabled={!templateId || aiBusy}>Continue</Button>
+          </div>
+
+          <p className="setup__manual">
+            Prefer to enter everything yourself?{' '}
+            <button type="button" className="setup__link" onClick={skipToSettings}>Set up manually</button>
+          </p>
+        </ContentPanel>
+      )}
+
+      {step === 'hours' && (
+        <ContentPanel className="setup__card">
+          <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your hours</h2>
+          <p className="setup__hint">
+            {aiSummary || 'We filled these in from the template. Fix any that are off, and pick the day your week starts.'}
+          </p>
 
           <div className="setup__field">
             <span className="setup__field-label">Which day does your scheduling week start?</span>
@@ -444,9 +438,9 @@ export const SetupWizard = () => {
                 <button
                   key={day}
                   type="button"
-                  aria-pressed={weekStartsOn === day}
-                  className={`setup__day-chip ${weekStartsOn === day ? 'is-active' : ''}`.trim()}
-                  onClick={() => setWeekStartsOn(day)}
+                  aria-pressed={f.form.weekStartsOn === day}
+                  className={`setup__day-chip ${f.form.weekStartsOn === day ? 'is-active' : ''}`.trim()}
+                  onClick={() => f.updateForm('weekStartsOn', day)}
                 >
                   {day.slice(0, 3)}
                 </button>
@@ -454,42 +448,19 @@ export const SetupWizard = () => {
             </div>
           </div>
 
-          {aiEnabled && (
-            <div className="setup__field">
-              <label className="setup__field-label" htmlFor="setup-size-hint">
-                Fine-tune staffing for your location <span className="setup__optional">(optional)</span>
-              </label>
-              <textarea
-                id="setup-size-hint"
-                className="setup__ai-input"
-                rows={2}
-                value={sizeHint}
-                onChange={(event) => setSizeHint(event.target.value)}
-                placeholder="Ex. We seat about 60, dinner is our busy service, two turns on weekends."
-              />
-              <p className="setup__shift-times-hint">
-                We'll adjust the coverage numbers to match — the roles, shifts, and hours stay as they are.
-              </p>
-            </div>
-          )}
+          <BusinessHoursFields f={f} />
 
           <div className="setup__actions">
-            <button type="button" className="button-outline" onClick={skipToSettings}>
-              Set up manually
-            </button>
-            <Button type="button" onClick={commitTemplate} disabled={!templateId || !weekStartsOn || tuning}>
-              {tuning ? 'Adjusting…' : 'Continue'}
-            </Button>
+            <button type="button" className="button-outline" onClick={goBack}>Back</button>
+            <Button type="button" onClick={commitHours} disabled={formOpenDays.length === 0 || !f.form.weekStartsOn}>Continue</Button>
           </div>
-          </>
-          )}
         </ContentPanel>
       )}
 
       {step === 'shiftTypes' && (
         <ContentPanel className="setup__card">
           <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your shift types</h2>
-          <p className="setup__hint">We filled these in from the template. Add, remove, or set times.</p>
+          <p className="setup__hint">These came from the template too. Add, remove, or set times.</p>
 
           <ShiftTypesFields f={f} />
 
@@ -503,7 +474,7 @@ export const SetupWizard = () => {
       {step === 'teamRoles' && (
         <ContentPanel className="setup__card">
           <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your team roles</h2>
-          <p className="setup__hint">These came from the template too. Add any you're missing, or remove ones you don't use.</p>
+          <p className="setup__hint">Also from the template. Add any you're missing, or remove ones you don't use.</p>
 
           <TeamRolesFields f={f} />
 
@@ -514,36 +485,39 @@ export const SetupWizard = () => {
         </ContentPanel>
       )}
 
-      {step === 'hours' && (
-        <ContentPanel className="setup__card">
-          <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm your hours</h2>
-          <p className="setup__hint">
-            {aiSummary || 'We filled these in from the template. Fix any that are off.'}
-          </p>
-
-          <BusinessHoursFields f={f} />
-
-          <div className="setup__actions">
-            <button type="button" className="button-outline" onClick={goBack}>Back</button>
-            <Button type="button" onClick={commitAndAdvance} disabled={formOpenDays.length === 0}>Continue</Button>
-          </div>
-        </ContentPanel>
-      )}
-
       {step === 'coverage' && (
         <ContentPanel className="setup__card">
           <h2 ref={stepHeadingRef} tabIndex={-1} className="setup__step-heading">Confirm coverage targets</h2>
           <p className="setup__hint">
-            {tuneNote || 'How many of each role you need per shift. The template\'s a starting point — tune it or move on.'}
+            {tuneNote || 'How many people each shift needs. Tap a shift to change its roles.'}
           </p>
 
-          {unreviewedRoles.length > 0 && (
-            <p className="setup__review-hint">
-              Still to review: {unreviewedRoles.join(', ')}
-            </p>
-          )}
+          <CoverageTargetsFields f={f} />
 
-          <CoverageTargetsFields f={f} onSelectRole={pickCoverageRole} reviewed={reviewedRoles} />
+          {aiEnabled && (
+            <details className="setup__tune">
+              <summary>Adjust these for my location</summary>
+              <label className="setup__field-label" htmlFor="setup-size-hint">
+                What should we know about your location?
+              </label>
+              <textarea
+                id="setup-size-hint"
+                className="setup__ai-input"
+                rows={2}
+                value={sizeHint}
+                onChange={(event) => setSizeHint(event.target.value)}
+                placeholder="Ex. We seat about 60, dinner is our busy service, two turns on weekends."
+              />
+              <p className="setup__shift-times-hint">
+                We'll change the headcounts on every open day to match. Roles, shifts, and hours stay as they are.
+              </p>
+              <div>
+                <button type="button" className="button-outline" onClick={tuneCoverage} disabled={tuning || !sizeHint.trim()}>
+                  {tuning ? 'Adjusting…' : 'Adjust staffing'}
+                </button>
+              </div>
+            </details>
+          )}
 
           <div className="setup__actions">
             <button type="button" className="button-outline" onClick={goBack}>Back</button>

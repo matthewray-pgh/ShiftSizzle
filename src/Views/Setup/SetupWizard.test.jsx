@@ -49,34 +49,37 @@ const renderWizard = () => renderView(SetupWizard, { employees: [], settings: {}
 const clickContinue = () => fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
 describe('SetupWizard', () => {
-  it('walks template -> shift types -> team roles -> hours -> coverage -> team -> build and lands in the builder', async () => {
+  it('walks template -> hours -> shift types -> team roles -> coverage -> team -> build and lands in the builder', async () => {
     await renderWizard();
 
-    // Step 1: pick a business type + week start, then continue.
+    // Step 1: nothing is preselected, so Continue waits for a business type.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
     fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Wed' }));
     clickContinue();
 
-    // Shift types and team roles are new review stops shared with Settings
-    // — same components, so nothing to assert here beyond reaching them.
+    // Hours are pre-filled from the template; the week start is confirmed
+    // here, defaulting to Monday.
+    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
+    const openInputs = screen.getAllByLabelText('Open');
+    expect(openInputs.some((input) => input.value === '06:00')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Mon' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Wed' }));
+    expect(screen.getByRole('button', { name: 'Wed' })).toHaveAttribute('aria-pressed', 'true');
+    clickContinue();
+
+    // Shift types and team roles are review stops shared with Settings —
+    // same components, so nothing to assert here beyond reaching them.
     expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
     clickContinue();
 
     expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
     clickContinue();
 
-    // Hours are pre-filled from the template.
-    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
-    const openInputs = screen.getAllByLabelText('Open');
-    expect(openInputs.some((input) => input.value === '06:00')).toBe(true);
-    clickContinue();
-
-    // Coverage targets — a role pill per team role, the first one already
-    // reviewed, the rest flagged as still to review.
+    // Coverage targets — the week heatmap, opened on the first open day's
+    // first shift with a stepper per team role.
     expect(await screen.findByText('Confirm coverage targets')).toBeInTheDocument();
-    expect(screen.getByRole('tablist', { name: 'Role' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Barista/ })).toBeInTheDocument();
-    expect(screen.getByText(/Still to review:/)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Coverage targets by day and shift' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add one Barista' })).toBeInTheDocument();
     clickContinue();
 
     // Add a team member.
@@ -103,6 +106,8 @@ describe('SetupWizard', () => {
 
     // Times sit inline per shift type now (Settings' own Shift Types
     // section), not behind a separate collapsed disclosure.
+    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
+    clickContinue();
     expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
     const starts = screen.getAllByLabelText('Start');
     expect(starts[0]).toHaveValue('06:00'); // from the Cafe template
@@ -119,7 +124,7 @@ describe('SetupWizard', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
     clickContinue();
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
+    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
 
     // Now the earlier + reached steps are clickable.
     fireEvent.click(screen.getByRole('button', { name: /Coverage/ }));
@@ -129,93 +134,60 @@ describe('SetupWizard', () => {
     expect(await screen.findByText('What kind of business is this?')).toBeInTheDocument();
   });
 
-  it('tunes a template\'s coverage from the size hint before advancing', async () => {
+  // template -> hours -> shift types -> team roles -> coverage.
+  const walkToCoverage = async () => {
+    await renderWizard();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
+    clickContinue();
+    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
+    clickContinue();
+    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
+    clickContinue();
+    expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
+    clickContinue();
+    expect(await screen.findByText('Confirm coverage targets')).toBeInTheDocument();
+  };
+
+  it('adjusts coverage for the location from the coverage step', async () => {
     mockRequestTunedCoverage.mockResolvedValue({
       ok: true,
       coverageByRole: { Barista: { Open: 5 } },
       summary: 'Bumped opening baristas for the weekend rush.',
     });
 
-    await renderWizard();
+    await walkToCoverage();
+    expect(mockRequestTunedCoverage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
-    fireEvent.change(screen.getByLabelText(/Fine-tune staffing/), {
+    fireEvent.change(screen.getByLabelText('What should we know about your location?'), {
       target: { value: 'Busy weekend brunch, seats about 40.' },
     });
-    clickContinue();
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust staffing' }));
 
-    // template -> shift types -> team roles -> hours (the tune ran during
-    // the template -> shift types transition) -> coverage.
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm coverage targets')).toBeInTheDocument();
-    expect(screen.getByText('Bumped opening baristas for the weekend rush.')).toBeInTheDocument();
+    expect(await screen.findByText('Bumped opening baristas for the weekend rush.')).toBeInTheDocument();
     expect(mockRequestTunedCoverage).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ templateLabel: 'Cafe / coffee shop', note: 'Busy weekend brunch, seats about 40.' }),
+      expect.objectContaining({
+        templateLabel: 'Cafe / coffee shop',
+        roles: ['Shift Lead', 'Barista', 'Cook'],
+        note: 'Busy weekend brunch, seats about 40.',
+      }),
     );
+    // The first open day's Open shift is selected by default.
+    expect(screen.getByLabelText('Barista needed')).toHaveTextContent('5');
   });
 
-  it('falls back to template numbers when the coverage tune fails', async () => {
-    mockRequestTunedCoverage.mockResolvedValue({ error: 'model unavailable' });
+  it('leaves the numbers alone and says why when the adjustment fails', async () => {
+    mockRequestTunedCoverage.mockResolvedValue({ error: 'The AI service took too long to respond. Try again.' });
 
-    await renderWizard();
+    await walkToCoverage();
+    const before = screen.getByLabelText('Barista needed').textContent;
 
-    fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
-    fireEvent.change(screen.getByLabelText(/Fine-tune staffing/), { target: { value: 'A small cafe.' } });
-    clickContinue();
+    fireEvent.change(screen.getByLabelText('What should we know about your location?'), { target: { value: 'A small cafe.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust staffing' }));
 
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm coverage targets')).toBeInTheDocument();
-    expect(screen.getByText(/Couldn't adjust staffing automatically/)).toBeInTheDocument();
-  });
-
-  it('skips the tune call when the size hint is left blank', async () => {
-    await renderWizard();
-
-    fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
-    clickContinue();
-
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
-    expect(mockRequestTunedCoverage).not.toHaveBeenCalled();
-  });
-
-  it('tracks which roles have been reviewed on the coverage step', async () => {
-    await renderWizard();
-
-    fireEvent.click(screen.getByRole('radio', { name: /Cafe \/ coffee shop/ }));
-    clickContinue();
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
-    clickContinue();
-    expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
-    clickContinue();
-    expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
-    clickContinue();
-
-    expect(await screen.findByText('Confirm coverage targets')).toBeInTheDocument();
-    // Cafe template roles: Shift Lead, Barista, Cook. One is auto-reviewed.
-    expect(screen.getByText('Still to review: Barista, Cook')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: /Barista/ }));
-    expect(screen.getByText('Still to review: Cook')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: /Cook/ }));
-    expect(screen.queryByText(/Still to review/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't adjust staffing — your numbers are unchanged\. The AI service took too long/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Barista needed')).toHaveTextContent(before);
   });
 
   it('lets a manager skip the template and set up manually', async () => {
@@ -299,21 +271,17 @@ describe('SetupWizard', () => {
 
     await renderWizard();
 
-    fireEvent.click(screen.getByRole('radio', { name: /Something else/ }));
     fireEvent.change(screen.getByLabelText('Tell us about your business'), {
       target: { value: 'A neighborhood bakery, open early Tuesday through Sunday.' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Generate my setup' }));
 
-    expect(await screen.findByText('Confirm your shift types')).toBeInTheDocument();
-    expect(mockRequestAiSetup).toHaveBeenCalledOnce();
-
-    // The AI's summary line surfaces on the hours step, same as before.
-    clickContinue();
-    expect(await screen.findByText('Confirm your team roles')).toBeInTheDocument();
-    clickContinue();
+    // Hours is the first stop after generating, and carries the AI's summary.
     expect(await screen.findByText('Confirm your hours')).toBeInTheDocument();
+    expect(mockRequestAiSetup).toHaveBeenCalledOnce();
     expect(screen.getByText('Bakery open Tue–Sun, early mornings.')).toBeInTheDocument();
+    // The week start the description stated is what the Hours step shows.
+    expect(screen.getByRole('button', { name: 'Tue' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('falls back to the template list when AI setup is not deployed', async () => {
@@ -321,14 +289,14 @@ describe('SetupWizard', () => {
 
     await renderWizard();
 
-    fireEvent.click(screen.getByRole('radio', { name: /Something else/ }));
     fireEvent.change(screen.getByLabelText('Tell us about your business'), {
       target: { value: 'A small taco shop open every day for lunch and dinner.' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Generate my setup' }));
 
-    // Silently drops back to the picker; the "Something else" option is gone.
-    expect(await screen.findByRole('radiogroup', { name: 'Business type' })).toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: /Something else/ })).not.toBeInTheDocument();
+    // The describe box quietly goes away, leaving the templates.
+    await waitFor(() => expect(screen.queryByLabelText('Tell us about your business')).not.toBeInTheDocument());
+    expect(screen.getByRole('radiogroup', { name: 'Business type' })).toBeInTheDocument();
+    expect(screen.getByText('Start from a common setup')).toBeInTheDocument();
   });
 });

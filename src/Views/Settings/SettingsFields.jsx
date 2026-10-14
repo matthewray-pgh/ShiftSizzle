@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Button, CoverageDayRow, DayHoursRow, InputField, RolePills } from '../../Components';
+import { Button, CoverageHeatmap, DayHoursRow, InputField } from '../../Components';
 import { DAYS } from '../../state/AppState';
 
 const emptyCoverageRow = (shiftTypes) => Object.fromEntries(shiftTypes.map((shift) => [shift, 0]));
@@ -17,13 +17,10 @@ export const useSettingsForm = (state) => {
   const [justSaved, setJustSaved] = useState(false);
   const [newShiftType, setNewShiftType] = useState('');
   const [newTeamRole, setNewTeamRole] = useState('');
-  const [coverageRoleChoice, setCoverageRoleChoice] = useState(state.settings.teamRoles?.[0] ?? '');
 
   const derivedWeekEnd = form.weekStartsOn ? DAYS[(DAYS.indexOf(form.weekStartsOn) + 6) % DAYS.length] : '';
-  const coverageRole = form.teamRoles.includes(coverageRoleChoice) ? coverageRoleChoice : (form.teamRoles[0] ?? '');
-  const coverageRow = (day) => form.roleCoverage?.[coverageRole]?.[day] ?? emptyCoverageRow(form.shiftTypes);
 
-  // One role's total headcount across the open week — shown on its pill.
+  // One role's total headcount across the open week.
   const coverageTotalFor = (role) =>
     DAYS.reduce((total, day) => (
       form.operatingHours?.[day]?.isOpen
@@ -180,10 +177,13 @@ export const useSettingsForm = (state) => {
     });
   };
 
-  const applyCoverageToAllDays = (role, sourceDay) => {
-    const sourceRow = { ...emptyCoverageRow(form.shiftTypes), ...(form.roleCoverage?.[role]?.[sourceDay] ?? {}) };
+  // Copies one day's targets, every role, onto the rest of the week.
+  const applyDayCoverageToAllDays = (sourceDay) => {
+    updateForm('roleCoverage', Object.fromEntries(form.teamRoles.map((role) => {
+      const sourceRow = { ...emptyCoverageRow(form.shiftTypes), ...(form.roleCoverage?.[role]?.[sourceDay] ?? {}) };
 
-    setCoverageGrid(role, Object.fromEntries(DAYS.map((day) => [day, { ...sourceRow }])));
+      return [role, Object.fromEntries(DAYS.map((day) => [day, { ...sourceRow }]))];
+    })));
   };
 
   const updateOperatingHours = (day, field, value) => {
@@ -228,10 +228,7 @@ export const useSettingsForm = (state) => {
     setNewShiftType,
     newTeamRole,
     setNewTeamRole,
-    coverageRole,
-    setCoverageRole: setCoverageRoleChoice,
     derivedWeekEnd,
-    coverageRow,
     coverageTotalFor,
     rolesInUse,
     workspaceDirty,
@@ -250,7 +247,7 @@ export const useSettingsForm = (state) => {
     addTeamRole,
     removeTeamRole,
     updateCoverage,
-    applyCoverageToAllDays,
+    applyDayCoverageToAllDays,
     updateOperatingHours,
     applyHoursPreset,
     toggleOperatingDay,
@@ -394,36 +391,34 @@ export const TeamRolesFields = ({ f }) => (
   </>
 );
 
-// `onSelectRole`/`reviewed` let a caller (the setup wizard) layer its own
-// role-review tracking on top of the same grid, without this component
-// needing to know that concept exists.
-export const CoverageTargetsFields = ({ f, onSelectRole, reviewed }) => (
-  <>
-    <span className="settings__field-label">Role</span>
-    <RolePills
-      roles={f.form.teamRoles}
-      active={f.coverageRole}
-      onSelect={onSelectRole ?? f.setCoverageRole}
-      totalFor={f.coverageTotalFor}
-      reviewed={reviewed}
-    />
+export const CoverageTargetsFields = ({ f }) => {
+  const [picked, setPicked] = useState(null);
+  const openDays = DAYS.filter((day) => f.form.operatingHours?.[day]?.isOpen);
+  // Start on the first open day's first shift so the editor is never empty.
+  const selected = picked && openDays.includes(picked.day) && f.form.shiftTypes.includes(picked.shift)
+    ? picked
+    : (openDays.length && f.form.shiftTypes.length ? { day: openDays[0], shift: f.form.shiftTypes[0] } : null);
 
-    <div className="settings__coverage-grid" aria-label={`Coverage targets for ${f.coverageRole}`}>
-      {DAYS.map((day) => (
-        <CoverageDayRow
-          key={day}
-          day={day}
-          isClosed={!f.form.operatingHours?.[day]?.isOpen}
-          settings={f.form}
-          shiftTypes={f.form.shiftTypes}
-          values={f.coverageRow(day)}
-          onChange={(shift, value) => f.updateCoverage(f.coverageRole, day, shift, value)}
-          onApplyToAll={() => f.applyCoverageToAllDays(f.coverageRole, day)}
-        />
-      ))}
-    </div>
-  </>
-);
+  return (
+    <>
+      <CoverageHeatmap
+        settings={f.form}
+        shiftTypes={f.form.shiftTypes}
+        roles={f.form.teamRoles}
+        operatingHours={f.form.operatingHours}
+        coverage={f.form.roleCoverage}
+        selected={selected}
+        onSelect={setPicked}
+        onChange={f.updateCoverage}
+        onApplyDayToAll={f.applyDayCoverageToAllDays}
+      />
+
+      <p className="coverage-heatmap__totals">
+        Per week: {f.form.teamRoles.map((role) => `${role} ${f.coverageTotalFor(role)}`).join(' · ')}
+      </p>
+    </>
+  );
+};
 
 export const SchedulingWeekFields = ({ f }) => (
   <>
