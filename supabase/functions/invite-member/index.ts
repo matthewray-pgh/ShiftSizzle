@@ -51,15 +51,18 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Invalid request body' }, 400);
   }
 
-  const { email, accountRole, employeeId, locationIds } = body ?? {};
+  const { accountRole, employeeId, locationIds } = body ?? {};
+  // Stored lowercased so it matches the address on the account the invitee
+  // creates; the invite-acceptance trigger compares the two.
+  const email = `${body?.email ?? ''}`.trim().toLowerCase();
 
-  if (!email || !['manager', 'staff'].includes(accountRole)) {
-    return jsonResponse({ error: 'email and a valid accountRole (manager or staff) are required' }, 400);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !['manager', 'staff'].includes(accountRole)) {
+    return jsonResponse({ error: 'A valid email and accountRole (manager or staff) are required' }, 400);
   }
 
   const { data: callerMembership, error: membershipError } = await adminClient
     .from('memberships')
-    .select('org_id, account_role')
+    .select('id, org_id, account_role')
     .eq('user_id', callerData.user.id)
     .eq('status', 'active')
     .maybeSingle();
@@ -85,7 +88,7 @@ Deno.serve(async (req) => {
       .in('id', requestedLocationIds);
 
     if (locationsError) {
-      return jsonResponse({ error: locationsError.message }, 500);
+      return jsonResponse({ error: 'Could not check locations' }, 500);
     }
 
     // Trust nothing from the request body beyond "these ids, if they're
@@ -94,26 +97,73 @@ Deno.serve(async (req) => {
     if ((validLocations ?? []).length !== requestedLocationIds.length) {
       return jsonResponse({ error: 'One or more locationIds do not belong to your organization' }, 400);
     }
+
+    // A manager can only hand out access to locations they have themselves.
+    if (callerMembership.account_role !== 'owner') {
+      const { data: callerLocations, error: callerLocationsError } = await adminClient
+        .from('membership_locations')
+        .select('location_id')
+        .eq('membership_id', callerMembership.id);
+
+      if (callerLocationsError) {
+        return jsonResponse({ error: 'Could not check your location access' }, 500);
+      }
+
+      const allowed = new Set((callerLocations ?? []).map((row) => row.location_id));
+
+      if (requestedLocationIds.some((locationId) => !allowed.has(locationId))) {
+        return jsonResponse({ error: 'You can only grant access to locations you manage' }, 403);
+      }
+    }
   }
 
-  const { data: membershipRow, error: upsertError } = await adminClient
-    .from('memberships')
-    .upsert(
-      {
-        org_id: orgId,
-        invited_email: email,
-        account_role: accountRole,
-        employee_id: employeeId ?? null,
-        invited_by: callerData.user.id,
-        status: 'invited',
-      },
-      { onConflict: 'org_id,invited_email' }
-    )
-    .select()
-    .single();
+  if (employeeId) {
+    const { data: employee, error: employeeError } = await adminClient
+      .from('employees')
+      .select('id')
+      .eq('id', employeeId)
+      .eq('org_id', orgId)
+      .maybeSingle();
 
-  if (upsertError) {
-    return jsonResponse({ error: upsertError.message }, 500);
+    if (employeeError || !employee) {
+      return jsonResponse({ error: 'That team member is not in your organization' }, 400);
+    }
+  }
+
+  // Re-inviting is only for invites still pending. Anyone who already has a
+  // membership here (the owner included) is left alone: rewriting their row
+  // to 'invited' would lock them out, since only a brand-new account ever
+  // flips an invite back to active.
+  const { data: orgMemberships, error: existingError } = await adminClient
+    .from('memberships')
+    .select('id, invited_email, status')
+    .eq('org_id', orgId);
+
+  if (existingError) {
+    return jsonResponse({ error: 'Could not check existing members' }, 500);
+  }
+
+  const existing = (orgMemberships ?? []).find((row) => `${row.invited_email}`.toLowerCase() === email);
+
+  if (existing && existing.status !== 'invited') {
+    return jsonResponse({ error: 'That person is already a member of this workspace' }, 409);
+  }
+
+  const invite = {
+    org_id: orgId,
+    invited_email: email,
+    account_role: accountRole,
+    employee_id: employeeId ?? null,
+    invited_by: callerData.user.id,
+    status: 'invited',
+  };
+
+  const { data: membershipRow, error: saveError } = existing
+    ? await adminClient.from('memberships').update(invite).eq('id', existing.id).select().single()
+    : await adminClient.from('memberships').insert(invite).select().single();
+
+  if (saveError) {
+    return jsonResponse({ error: 'Could not save the invite' }, 500);
   }
 
   if (accountRole === 'manager') {
@@ -125,7 +175,7 @@ Deno.serve(async (req) => {
       .eq('membership_id', membershipRow.id);
 
     if (clearLocationsError) {
-      return jsonResponse({ error: clearLocationsError.message }, 500);
+      return jsonResponse({ error: 'Could not update location access' }, 500);
     }
 
     if (requestedLocationIds.length > 0) {
@@ -138,7 +188,7 @@ Deno.serve(async (req) => {
         })));
 
       if (grantLocationsError) {
-        return jsonResponse({ error: grantLocationsError.message }, 500);
+        return jsonResponse({ error: 'Could not update location access' }, 500);
       }
     }
   }

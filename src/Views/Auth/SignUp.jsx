@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, Link } from 'react-router-dom';
 
 import { Button, InputField } from '../../Components';
 import { useAuth } from '../../state/AuthState';
 import { supabase } from '../../lib/supabaseClient';
 import logo from '../../Assets/ShiftSizzle.Logo.png';
+import { MIN_PASSWORD_LENGTH, PASSWORD_HINT, passwordProblem } from './passwordRules';
 
 import './Auth.scss';
 
@@ -17,6 +18,16 @@ export const SignUp = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // The business name typed before confirming an email address is saved on
+  // the account, so the "one last step" form after confirming starts filled.
+  const pendingOrgName = user?.user_metadata?.pending_org_name ?? '';
+
+  useEffect(() => {
+    if (pendingOrgName) {
+      setOrgName((current) => current || pendingOrgName);
+    }
+  }, [pendingOrgName]);
 
   if (!loading && user && membership) {
     return <Navigate to="/" replace />;
@@ -59,10 +70,26 @@ export const SignUp = () => {
       return;
     }
 
+    const weakPassword = passwordProblem(password);
+
+    if (weakPassword) {
+      setError(weakPassword);
+      return;
+    }
+
     setError('');
     setSubmitting(true);
 
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { pending_org_name: trimmedName },
+        // Back to this app (not the project's default Site URL) after the
+        // confirmation link. Must be in Auth > URL Configuration > Redirect URLs.
+        emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      },
+    });
 
     if (signUpError) {
       setSubmitting(false);
@@ -72,7 +99,7 @@ export const SignUp = () => {
 
     if (!data.session) {
       setSubmitting(false);
-      setNotice('Check your email to confirm your account, then sign in to finish setting up your workspace.');
+      setNotice(`We sent a confirmation link to ${email}. Open it to finish setting up ${trimmedName}.`);
       return;
     }
 
@@ -116,7 +143,8 @@ export const SignUp = () => {
           {!alreadySignedIn && (
             <>
               <InputField label="Email" name="email" type="email" value={email} onChange={setEmail} required autoComplete="email" />
-              <InputField label="Password" name="password" type="password" value={password} onChange={setPassword} required autoComplete="new-password" minLength={6} />
+              <InputField label="Password" name="password" type="password" value={password} onChange={setPassword} required autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} />
+              <p className="auth-page__hint">{PASSWORD_HINT}</p>
             </>
           )}
           <Button type="submit" className="auth-page__submit" disabled={submitting}>

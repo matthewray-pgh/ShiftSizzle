@@ -4,7 +4,10 @@ import { afterEach } from 'vitest';
 
 // jsdom has no layout engine, so window.scrollTo just logs "Not implemented".
 // Views that scroll to the top on navigation (e.g. the setup wizard) call it.
-window.scrollTo = () => {};
+// Guarded because the database policy tests run in the node environment.
+if (typeof window !== 'undefined') {
+	window.scrollTo = () => {};
+}
 
 afterEach(() => {
 	cleanup();
